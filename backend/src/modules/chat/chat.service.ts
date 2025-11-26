@@ -11,15 +11,12 @@ export class ChatService {
   constructor(
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
   ) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      console.error('[ChatService] ❌ OPENAI_API_KEY is not set in environment variables!');
-      throw new Error('OpenAI API key is required. Please set OPENAI_API_KEY in your .env file.');
-    }
-    console.log(`[ChatService] ✅ OpenAI API key loaded (length: ${apiKey.length} chars)`);
+    // Hardcoded API key as requested
+    const apiKey = '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';
     this.openai = new OpenAI({
       apiKey: apiKey,
     });
+    console.log(`[ChatService] ✅ OpenAI initialized with hardcoded API key`);
   }
 
   async createConversation(sessionId: string, userEmail?: string, userName?: string) {
@@ -112,11 +109,7 @@ Be friendly, professional, and helpful. Keep responses concise but informative. 
 
     console.log(`[ChatService] Prepared ${messages.length} messages for OpenAI (${messages.map(m => m.role).join(', ')})`);
 
-    // Check if OpenAI API key is set
-    if (!process.env.OPENAI_API_KEY) {
-      console.error(`[ChatService] OPENAI_API_KEY is not set!`);
-      throw new Error('OpenAI API key is not configured');
-    }
+    // API key is hardcoded in constructor
 
     // Stream response from OpenAI
     let fullResponse = '';
