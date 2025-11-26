@@ -12,7 +12,7 @@ async function bootstrap() {
     console.warn('⚠️  FRONTEND_URL environment variable not set. CORS may not work correctly.');
   }
   app.enableCors({
-    origin: frontendUrl || '*', // Fallback to * for development only
+    origin: frontendUrl, // Fallback to * for development only
     credentials: true,
   });
   
