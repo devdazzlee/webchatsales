@@ -11,8 +11,14 @@ export class ChatService {
   constructor(
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
   ) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error('[ChatService] ❌ OPENAI_API_KEY is not set in environment variables!');
+      throw new Error('OpenAI API key is required. Please set OPENAI_API_KEY in your .env file.');
+    }
+    console.log(`[ChatService] ✅ OpenAI API key loaded (length: ${apiKey.length} chars)`);
     this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey: apiKey,
     });
   }
 
@@ -67,18 +73,23 @@ export class ChatService {
   }
 
   async *streamChatResponse(sessionId: string, userMessage: string) {
+    console.log(`[ChatService] Starting streamChatResponse for sessionId: ${sessionId}, message: "${userMessage.substring(0, 50)}..."`);
+    
     // Get or create conversation
     let conversation = await this.getConversation(sessionId);
     if (!conversation) {
+      console.log(`[ChatService] Creating new conversation for sessionId: ${sessionId}`);
       conversation = await this.createConversation(sessionId);
     }
 
     // Add user message
     await this.addMessage(sessionId, 'user', userMessage);
+    console.log(`[ChatService] User message saved, fetching conversation for OpenAI context`);
 
     // Refetch conversation to get updated messages array
     conversation = await this.getConversation(sessionId);
     if (!conversation) {
+      console.error(`[ChatService] Failed to retrieve conversation after adding message`);
       throw new Error('Failed to retrieve conversation after adding message');
     }
 
@@ -99,33 +110,77 @@ Be friendly, professional, and helpful. Keep responses concise but informative. 
       })),
     ];
 
-    // Stream response from OpenAI
-    const stream = await this.openai.chat.completions.create({
-      model: 'gpt-4',
-      messages: messages,
-      stream: true,
-      temperature: 0.7,
-    });
+    console.log(`[ChatService] Prepared ${messages.length} messages for OpenAI (${messages.map(m => m.role).join(', ')})`);
 
-    let fullResponse = '';
-
-    for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content || '';
-      if (content) {
-        fullResponse += content;
-        yield content;
-      }
+    // Check if OpenAI API key is set
+    if (!process.env.OPENAI_API_KEY) {
+      console.error(`[ChatService] OPENAI_API_KEY is not set!`);
+      throw new Error('OpenAI API key is not configured');
     }
 
-    // Save assistant response
-    if (fullResponse) {
-      try {
-        await this.addMessage(sessionId, 'assistant', fullResponse);
-        console.log(`[ChatService] Assistant response saved for sessionId: ${sessionId}`);
-      } catch (error) {
-        console.error(`[ChatService] Error saving assistant response:`, error);
-        // Don't throw - response was already streamed to user
+    // Stream response from OpenAI
+    let fullResponse = '';
+    let stream;
+    
+    try {
+      console.log(`[ChatService] Calling OpenAI API with model: gpt-4, message count: ${messages.length}`);
+    
+    try {
+      stream = await this.openai.chat.completions.create({
+        model: 'gpt-4',
+        messages: messages,
+        stream: true,
+        temperature: 0.7,
+      });
+      console.log(`[ChatService] ✅ OpenAI stream created successfully`);
+    } catch (apiError: any) {
+      console.error(`[ChatService] ❌ Failed to create OpenAI stream:`, {
+        message: apiError?.message,
+        status: apiError?.status,
+        code: apiError?.code,
+        type: apiError?.type
+      });
+      throw apiError;
+    }
+
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        if (content) {
+          fullResponse += content;
+          yield content;
+        }
+        
+        // Check if stream finished
+        if (chunk.choices[0]?.finish_reason) {
+          console.log(`[ChatService] Stream finished, total length: ${fullResponse.length} chars`);
+          break;
+        }
       }
+
+      // Save assistant response
+      if (fullResponse && fullResponse.trim()) {
+        await this.addMessage(sessionId, 'assistant', fullResponse);
+        console.log(`[ChatService] Assistant response saved: ${fullResponse.length} chars`);
+      } else {
+        console.error(`[ChatService] ERROR: Empty response from OpenAI!`);
+        throw new Error('OpenAI returned empty response');
+      }
+      
+    } catch (openaiError: any) {
+      console.error(`[ChatService] OpenAI API error for sessionId ${sessionId}:`, openaiError);
+      
+      // If we got a partial response, save it before throwing
+      if (fullResponse && fullResponse.trim()) {
+        try {
+          await this.addMessage(sessionId, 'assistant', fullResponse);
+          console.log(`[ChatService] Saved partial response (${fullResponse.length} chars) after error`);
+        } catch (saveError) {
+          console.error(`[ChatService] Error saving partial response:`, saveError);
+        }
+      }
+      
+      // Re-throw the error so controller can handle it
+      throw openaiError;
     }
   }
 

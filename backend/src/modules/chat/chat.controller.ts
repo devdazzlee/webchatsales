@@ -41,15 +41,51 @@ export class ChatController {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no'); // Disable buffering
 
+    console.log(`[ChatController] Starting stream for sessionId: ${sessionId}, message: "${message.substring(0, 50)}..."`);
+
+    let chunkCount = 0;
+    let hasError = false;
+
     try {
       for await (const chunk of this.chatService.streamChatResponse(sessionId, message)) {
-        res.write(`data: ${JSON.stringify({ chunk, done: false })}\n\n`);
+        chunkCount++;
+        if (res.writable) {
+          res.write(`data: ${JSON.stringify({ chunk, done: false })}\n\n`);
+        } else {
+          console.error(`[ChatController] Response stream closed prematurely, chunks sent: ${chunkCount}`);
+          break;
+        }
       }
-      res.write(`data: ${JSON.stringify({ chunk: '', done: true })}\n\n`);
-      res.end();
-    } catch (error) {
-      res.write(`data: ${JSON.stringify({ error: error.message, done: true })}\n\n`);
-      res.end();
+      
+      if (chunkCount > 0 && res.writable) {
+        res.write(`data: ${JSON.stringify({ chunk: '', done: true })}\n\n`);
+        console.log(`[ChatController] ✅ Stream completed: ${chunkCount} chunks sent for sessionId: ${sessionId}`);
+      } else if (chunkCount === 0) {
+        hasError = true;
+        console.error(`[ChatController] ❌ ERROR: No chunks received from OpenAI for sessionId: ${sessionId}`);
+        if (res.writable) {
+          res.write(`data: ${JSON.stringify({ error: 'No response from AI. Please try again.', done: true })}\n\n`);
+        }
+      }
+      
+      if (res.writable) {
+        res.end();
+      }
+    } catch (error: any) {
+      hasError = true;
+      console.error(`[ChatController] ❌ ERROR streaming response for sessionId ${sessionId}:`, error);
+      console.error(`[ChatController] Error details:`, {
+        message: error?.message,
+        status: error?.status,
+        code: error?.code,
+        stack: error?.stack?.substring(0, 200)
+      });
+      
+      const errorMessage = error?.message || 'An error occurred. Please try again.';
+      if (res.writable && !res.headersSent) {
+        res.write(`data: ${JSON.stringify({ error: errorMessage, done: true })}\n\n`);
+        res.end();
+      }
     }
   }
 
