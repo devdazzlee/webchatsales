@@ -7,24 +7,30 @@ NestJS backend with OpenAI streaming, MongoDB, and Nodemailer integration.
 Create a `.env` file in the backend directory with:
 
 ```env
-# OpenAI Configuration
-OPENAI_API_KEY=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
+# OpenAI Configuration (REQUIRED)
+OPENAI_API_KEY=your_openai_api_key_here
 
-# MongoDB Configuration
-MONGODB_URI=mongodb+srv://ahmed:ahmed@megajump.wlbdfxd.mongodb.net/webchatsales?retryWrites=true&w=majority
+# MongoDB Configuration (REQUIRED)
+MONGODB_URI=your_mongodb_connection_string_here
 
-# Email Configuration (SMTP)
+# Email Configuration (SMTP) - REQUIRED
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_EMAIL=metaxoft5@gmail.com
-SMTP_PASSWORD=kazuyskebbgupnbh
+SMTP_EMAIL=your_email@gmail.com
+SMTP_PASSWORD=your_app_password_here
+
+# Admin Email (Optional - falls back to SMTP_EMAIL)
+ADMIN_EMAIL=your_admin_email@gmail.com
 
 # Server Configuration
-PORT=3001
+PORT=9000
 NODE_ENV=development
 
 # Frontend URL (for CORS)
 FRONTEND_URL=http://localhost:3000
+
+# Server URL (Optional)
+SERVER_URL=http://localhost:9000
 ```
 
 ## Installation
@@ -47,7 +53,7 @@ npm run build
 npm start
 ```
 
-The server will run on `http://localhost:3001`
+The server will run on `http://localhost:9000` (or the port specified in PORT env var)
 
 ## API Endpoints
 

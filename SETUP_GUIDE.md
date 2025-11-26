@@ -15,17 +15,28 @@ webchatsales/
 ```bash
 cd backend
 
-# Create .env file (copy from env.config.ts or create manually)
+# Create .env file (copy from .env.example or create manually)
 cat > .env << EOF
-OPENAI_API_KEY=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
-MONGODB_URI=mongodb+srv://ahmed:ahmed@megajump.wlbdfxd.mongodb.net/webchatsales?retryWrites=true&w=majority
+# OpenAI Configuration (REQUIRED)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# MongoDB Configuration (REQUIRED)
+MONGODB_URI=your_mongodb_connection_string_here
+
+# Email Configuration (SMTP) - REQUIRED
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_EMAIL=metaxoft5@gmail.com
-SMTP_PASSWORD=kazuyskebbgupnbh
-PORT=3001
+SMTP_EMAIL=your_email@gmail.com
+SMTP_PASSWORD=your_app_password_here
+
+# Admin Email (Optional - falls back to SMTP_EMAIL)
+ADMIN_EMAIL=your_admin_email@gmail.com
+
+# Server Configuration
+PORT=9000
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3000
+SERVER_URL=http://localhost:9000
 EOF
 
 # Install dependencies
@@ -46,7 +57,7 @@ cd webchatsales
 yarn install
 
 # Create .env.local file
-echo "NEXT_PUBLIC_API_URL=http://localhost:3001" > .env.local
+echo "NEXT_PUBLIC_API_URL=http://localhost:9000" > .env.local
 
 # Start frontend server
 yarn dev
@@ -99,12 +110,14 @@ Frontend will run on `http://localhost:3000`
 
 ### Backend won't start
 - Check `.env` file exists and has all required variables
-- Verify MongoDB connection string is correct
-- Check port 3001 is not in use
+- Verify `MONGODB_URI` is set correctly (required)
+- Verify `OPENAI_API_KEY` is set (required)
+- Verify `SMTP_EMAIL` and `SMTP_PASSWORD` are set (required)
+- Check port 9000 is not in use (or update PORT env var)
 
 ### Frontend can't connect to backend
-- Verify `NEXT_PUBLIC_API_URL` in `.env.local`
-- Check backend is running on port 3001
+- Verify `NEXT_PUBLIC_API_URL` in `.env.local` matches backend port
+- Check backend is running (default port 9000)
 - Check browser console for CORS errors
 
 ### Emails not sending

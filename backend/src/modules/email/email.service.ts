@@ -6,21 +6,35 @@ export class EmailService {
   private transporter: nodemailer.Transporter;
 
   constructor() {
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpPort = process.env.SMTP_PORT;
+    const smtpEmail = process.env.SMTP_EMAIL;
+    const smtpPassword = process.env.SMTP_PASSWORD;
+
+    if (!smtpEmail || !smtpPassword) {
+      throw new Error('SMTP_EMAIL and SMTP_PASSWORD environment variables are required');
+    }
+
     this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || '587'),
+      host: smtpHost || 'smtp.gmail.com',
+      port: parseInt(smtpPort || '587'),
       secure: false, // true for 465, false for other ports
       auth: {
-        user: process.env.SMTP_EMAIL,
-        pass: process.env.SMTP_PASSWORD,
+        user: smtpEmail,
+        pass: smtpPassword,
       },
     });
   }
 
   async sendEmail(to: string, subject: string, html: string, text?: string) {
+    const smtpEmail = process.env.SMTP_EMAIL;
+    if (!smtpEmail) {
+      throw new Error('SMTP_EMAIL environment variable is required');
+    }
+
     try {
       const info = await this.transporter.sendMail({
-        from: `"Abby - WebChat Sales" <${process.env.SMTP_EMAIL}>`,
+        from: `"Abby - WebChat Sales" <${smtpEmail}>`,
         to,
         subject,
         text: text || subject,
@@ -114,8 +128,12 @@ export class EmailService {
     `;
 
     // Send to the admin email (SMTP_EMAIL)
+    const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
+    if (!adminEmail) {
+      throw new Error('ADMIN_EMAIL or SMTP_EMAIL environment variable is required');
+    }
     return this.sendEmail(
-      process.env.SMTP_EMAIL || 'metaxoft5@gmail.com',
+      adminEmail,
       `New Beta Signup: ${userName}`,
       html
     );
