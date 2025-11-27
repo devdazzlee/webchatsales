@@ -8,7 +8,9 @@ Create a `.env` file in the backend directory with:
 
 ```env
 # OpenAI Configuration (REQUIRED)
+# Get your API key from: https://platform.openai.com/api-keys
 OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4o-mini
 
 # MongoDB Configuration (REQUIRED)
 MONGODB_URI=your_mongodb_connection_string_here
@@ -32,6 +34,8 @@ FRONTEND_URL=http://localhost:3000
 # Server URL (Optional)
 SERVER_URL=http://localhost:9000
 ```
+
+**⚠️ IMPORTANT:** Never commit your `.env` file to git. It contains sensitive API keys and credentials.
 
 ## Installation
 
@@ -72,9 +76,11 @@ The server will run on `http://localhost:9000` (or the port specified in PORT en
 
 ## Features
 
-✅ OpenAI GPT-4 streaming responses
+✅ OpenAI API integration (GPT-4o-mini or custom model)
+✅ Real-time streaming responses
 ✅ MongoDB conversation storage
 ✅ Nodemailer email integration
 ✅ CORS enabled for frontend
 ✅ Session management
+✅ Environment variable configuration (no hardcoded secrets)
 

@@ -62,7 +62,7 @@ export class ChatController {
         console.log(`[ChatController] ✅ Stream completed: ${chunkCount} chunks sent for sessionId: ${sessionId}`);
       } else if (chunkCount === 0) {
         hasError = true;
-        console.error(`[ChatController] ❌ ERROR: No chunks received from OpenAI for sessionId: ${sessionId}`);
+        console.error(`[ChatController] ❌ ERROR: No chunks received from AI for sessionId: ${sessionId}`);
         if (res.writable) {
           res.write(`data: ${JSON.stringify({ error: 'No response from AI. Please try again.', done: true })}\n\n`);
         }

@@ -1,22 +1,43 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import OpenAI from 'openai';
+import { OpenAI } from 'openai';
 import { Conversation, ConversationDocument } from '../../schemas/conversation.schema';
 
 @Injectable()
 export class ChatService {
-  private openai: OpenAI;
+  private openaiClient: OpenAI;
+  private model: string;
 
   constructor(
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
+    private configService: ConfigService,
   ) {
-    // Hardcoded API key as requested
-    const apiKey = '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';
-    this.openai = new OpenAI({
-      apiKey: apiKey,
+    // Get OpenAI API key from environment variables
+    const openaiApiKey = 
+      this.configService.get<string>('OPENAI_API_KEY') || 
+      process.env.OPENAI_API_KEY;
+    
+    // Get model name from environment or use default
+    this.model = 
+      this.configService.get<string>('OPENAI_MODEL') || 
+      process.env.OPENAI_MODEL || 
+      'gpt-4o-mini';
+    
+    if (!openaiApiKey) {
+      throw new Error(
+        'OPENAI_API_KEY environment variable is required. Please set it in your .env file.\n' +
+        'Get your API key from: https://platform.openai.com/api-keys'
+      );
+    }
+    
+    // Initialize OpenAI client
+    this.openaiClient = new OpenAI({
+      apiKey: openaiApiKey,
     });
-    console.log(`[ChatService] ✅ OpenAI initialized with hardcoded API key`);
+    
+    console.log(`[ChatService] ✅ OpenAI API initialized with model: ${this.model} (key ends with: ${openaiApiKey.substring(openaiApiKey.length - 6)})`);
   }
 
   async createConversation(sessionId: string, userEmail?: string, userName?: string) {
@@ -81,7 +102,7 @@ export class ChatService {
 
     // Add user message
     await this.addMessage(sessionId, 'user', userMessage);
-    console.log(`[ChatService] User message saved, fetching conversation for OpenAI context`);
+    console.log(`[ChatService] User message saved, fetching conversation for AI context`);
 
     // Refetch conversation to get updated messages array
     conversation = await this.getConversation(sessionId);
@@ -90,7 +111,7 @@ export class ChatService {
       throw new Error('Failed to retrieve conversation after adding message');
     }
 
-    // Prepare messages for OpenAI
+    // Prepare messages for OpenAI API format
     const systemPrompt = `You are Abby, an AI sales assistant for WebChat Sales. You help businesses with:
 - Lead qualification and booking meetings
 - Customer service inquiries
@@ -99,68 +120,60 @@ export class ChatService {
 
 Be friendly, professional, and helpful. Keep responses concise but informative. Always offer to help with specific next steps.`;
 
-    const messages = [
-      { role: 'system' as const, content: systemPrompt },
-      ...conversation.messages.map(msg => ({
-        role: msg.role as 'user' | 'assistant' | 'system',
-        content: msg.content,
-      })),
-    ];
-
-    console.log(`[ChatService] Prepared ${messages.length} messages for OpenAI (${messages.map(m => m.role).join(', ')})`);
-
-    // API key is hardcoded in constructor
-
-    // Stream response from OpenAI
-    let fullResponse = '';
-    let stream;
+    // Convert conversation messages to OpenAI format
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
     
-    try {
-      console.log(`[ChatService] Calling OpenAI API with model: gpt-4, message count: ${messages.length}`);
+    // Add system prompt if this is the first message
+    const historyMessages = conversation.messages.filter(msg => msg.role !== 'system');
+    if (historyMessages.length === 1 && historyMessages[0].role === 'user') {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
     
-    try {
-      stream = await this.openai.chat.completions.create({
-        model: 'gpt-4',
-        messages: messages,
-        stream: true,
-        temperature: 0.7,
-      });
-      console.log(`[ChatService] ✅ OpenAI stream created successfully`);
-    } catch (apiError: any) {
-      console.error(`[ChatService] ❌ Failed to create OpenAI stream:`, {
-        message: apiError?.message,
-        status: apiError?.status,
-        code: apiError?.code,
-        type: apiError?.type
-      });
-      throw apiError;
+    // Build conversation history - convert to OpenAI format
+    for (const msg of historyMessages) {
+      if (msg.role === 'user' || msg.role === 'assistant') {
+        messages.push({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+        });
+      }
     }
 
+    console.log(`[ChatService] Calling OpenAI API with model: ${this.model}, message count: ${messages.length}`);
+    
+    let fullResponse = '';
+    
+    try {
+      // Call OpenAI API with streaming
+      const stream = await this.openaiClient.chat.completions.create({
+        model: this.model,
+        messages: messages as any,
+        temperature: 0.7,
+        stream: true,
+      });
+
+      // Stream the response chunks
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content || '';
         if (content) {
           fullResponse += content;
-          yield content;
-        }
-        
-        // Check if stream finished
-        if (chunk.choices[0]?.finish_reason) {
-          console.log(`[ChatService] Stream finished, total length: ${fullResponse.length} chars`);
-          break;
+          yield content; // Yield each chunk as it arrives
         }
       }
+
+      console.log(`[ChatService] ✅ OpenAI API response received (${fullResponse.length} chars)`);
 
       // Save assistant response
       if (fullResponse && fullResponse.trim()) {
         await this.addMessage(sessionId, 'assistant', fullResponse);
         console.log(`[ChatService] Assistant response saved: ${fullResponse.length} chars`);
       } else {
-        console.error(`[ChatService] ERROR: Empty response from OpenAI!`);
-        throw new Error('OpenAI returned empty response');
+        console.error(`[ChatService] ERROR: Empty response from AI!`);
+        throw new Error('AI returned empty response');
       }
       
-    } catch (openaiError: any) {
-      console.error(`[ChatService] OpenAI API error for sessionId ${sessionId}:`, openaiError);
+    } catch (aiError: any) {
+      console.error(`[ChatService] OpenAI API error for sessionId ${sessionId}:`, aiError);
       
       // If we got a partial response, save it before throwing
       if (fullResponse && fullResponse.trim()) {
@@ -173,7 +186,7 @@ Be friendly, professional, and helpful. Keep responses concise but informative. 
       }
       
       // Re-throw the error so controller can handle it
-      throw openaiError;
+      throw aiError;
     }
   }
 

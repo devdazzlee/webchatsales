@@ -1,94 +1,9 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useChatbot } from './ChatbotContext';
-
-// Function to parse markdown and render as React elements
-const parseMarkdown = (text: string) => {
-  const lines = text.split('\n');
-  const elements: React.ReactNode[] = [];
-  
-  lines.forEach((line, lineIndex) => {
-    // Handle empty lines
-    if (line.trim() === '') {
-      elements.push(<br key={`br-${lineIndex}`} />);
-      return;
-    }
-    
-    // Handle numbered lists (e.g., "1. Item")
-    if (/^\d+\.\s/.test(line.trim())) {
-      const match = line.trim().match(/^(\d+\.\s)(.*)/);
-      if (match) {
-        const [, number, content] = match;
-        const parts = parseInlineMarkdown(content);
-        elements.push(
-          <div key={`line-${lineIndex}`} className="flex items-start gap-2 mb-1">
-            <span className="flex-shrink-0" style={{ color: 'var(--emerald)' }}>{number}</span>
-            <span>{parts}</span>
-          </div>
-        );
-        return;
-      }
-    }
-    
-    // Handle regular lines with inline markdown
-    const parts = parseInlineMarkdown(line);
-    elements.push(
-      <div key={`line-${lineIndex}`} className="mb-1">
-        {parts}
-      </div>
-    );
-  });
-  
-  return <>{elements}</>;
-};
-
-// Function to parse inline markdown (bold, italic, etc.)
-const parseInlineMarkdown = (text: string): React.ReactNode[] => {
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  
-  // Regex to match **bold** text
-  const boldRegex = /\*\*(.*?)\*\*/g;
-  let match;
-  let keyIndex = 0;
-  
-  while ((match = boldRegex.exec(text)) !== null) {
-    // Add text before the bold part
-    if (match.index > lastIndex) {
-      parts.push(
-        <span key={`text-${keyIndex++}`}>
-          {text.substring(lastIndex, match.index)}
-        </span>
-      );
-    }
-    
-    // Add the bold text
-    parts.push(
-      <strong key={`bold-${keyIndex++}`} style={{ color: 'var(--emerald)', fontWeight: 'bold' }}>
-        {match[1]}
-      </strong>
-    );
-    
-    lastIndex = match.index + match[0].length;
-  }
-  
-  // Add remaining text
-  if (lastIndex < text.length) {
-    parts.push(
-      <span key={`text-${keyIndex++}`}>
-        {text.substring(lastIndex)}
-      </span>
-    );
-  }
-  
-  // If no markdown found, return original text
-  if (parts.length === 0) {
-    return [<span key="plain">{text}</span>];
-  }
-  
-  return parts;
-};
 
 interface Message {
   id: string;
@@ -110,13 +25,58 @@ export default function Chatbot() {
   const inputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Throttled scroll function - only scrolls if user is near bottom
+  const scrollToBottom = (force = false) => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    
+    // Check if user is near bottom (within 100px) or force scroll
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    
+    if (force || isNearBottom) {
+      // Use scrollTop for smoother performance than scrollIntoView
+      container.scrollTop = container.scrollHeight;
+    }
   };
 
+  // Throttle scroll updates during streaming
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const throttledScroll = useCallback(() => {
+    if (scrollTimeoutRef.current) return;
+    
+    scrollTimeoutRef.current = setTimeout(() => {
+      scrollToBottom();
+      scrollTimeoutRef.current = null;
+    }, 100); // Throttle to every 100ms
+  }, []);
+
+  // Only scroll when new messages are added (not on every update)
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    // Scroll immediately when new message is added
+    if (messages.length > 0) {
+      scrollToBottom(true);
+    }
+  }, [messages.length]); // Only depend on length, not content
+
+  // Scroll to bottom when streaming completes
+  useEffect(() => {
+    if (!isStreaming && messages.length > 0) {
+      // Final scroll when streaming is done
+      setTimeout(() => scrollToBottom(true), 100);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStreaming]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -252,7 +212,8 @@ export default function Chatbot() {
                     },
                   ]);
                 } else {
-                  // Update existing message
+                  // Throttle updates using requestAnimationFrame for smoother performance
+                  requestAnimationFrame(() => {
                   setMessages((prev) =>
                     prev.map((msg) =>
                       msg.id === assistantMessageId
@@ -260,6 +221,9 @@ export default function Chatbot() {
                         : msg
                     )
                   );
+                    // Scroll after update
+                    throttledScroll();
+                  });
                 }
               }
               if (data.done) {
@@ -400,7 +364,8 @@ export default function Chatbot() {
                     },
                   ]);
                 } else {
-                  // Update existing message
+                  // Throttle updates using requestAnimationFrame for smoother performance
+                  requestAnimationFrame(() => {
                   setMessages((prev) =>
                     prev.map((msg) =>
                       msg.id === assistantMessageId
@@ -408,6 +373,9 @@ export default function Chatbot() {
                         : msg
                     )
                   );
+                    // Scroll after update
+                    throttledScroll();
+                  });
                 }
               }
               if (data.done) setIsStreaming(false);
@@ -487,7 +455,11 @@ export default function Chatbot() {
           </div>
 
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4" style={{ background: 'var(--bg)' }}>
+          <div 
+            ref={messagesContainerRef}
+            className="flex-1 overflow-y-auto p-4 space-y-4" 
+            style={{ background: 'var(--bg)' }}
+          >
             {messages.length === 0 ? (
               <div className="text-center py-8" style={{ color: 'var(--muted)' }}>
                 <p>Loading...</p>
@@ -508,7 +480,89 @@ export default function Chatbot() {
                       }`}
                       style={message.sender === 'user' ? {} : { background: 'var(--panel)', color: 'var(--ink)' }}
                     >
-                      <div className="text-sm">{parseMarkdown(message.text)}</div>
+                      <div className="text-sm prose prose-sm max-w-none dark:prose-invert">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            // Style headers
+                            h1: ({ ...props }) => (
+                              <h1 className="text-xl font-bold mb-2 mt-3" style={{ color: 'var(--emerald)' }} {...props} />
+                            ),
+                            h2: ({ ...props }) => (
+                              <h2 className="text-lg font-bold mb-2 mt-3" style={{ color: 'var(--emerald)' }} {...props} />
+                            ),
+                            h3: ({ ...props }) => (
+                              <h3 className="text-base font-bold mb-2 mt-2" style={{ color: 'var(--emerald)' }} {...props} />
+                            ),
+                            // Style links
+                            a: ({ ...props }) => (
+                              <a
+                                className="underline"
+                                style={{ color: 'var(--emerald)' }}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                {...props}
+                              />
+                            ),
+                            // Style tables
+                            table: ({ ...props }) => (
+                              <div className="overflow-x-auto my-3">
+                                <table className="min-w-full border-collapse" style={{ borderColor: 'var(--line)' }} {...props} />
+                              </div>
+                            ),
+                            thead: ({ ...props }) => (
+                              <thead style={{ background: 'var(--panel)' }} {...props} />
+                            ),
+                            th: ({ ...props }) => (
+                              <th
+                                className="px-3 py-2 text-left font-semibold border"
+                                style={{ borderColor: 'var(--line)', color: 'var(--emerald)' }}
+                                {...props}
+                              />
+                            ),
+                            td: ({ ...props }) => (
+                              <td
+                                className="px-3 py-2 border"
+                                style={{ borderColor: 'var(--line)' }}
+                                {...props}
+                              />
+                            ),
+                            // Style lists
+                            ul: ({ ...props }) => (
+                              <ul className="list-disc list-inside mb-2 space-y-1" {...props} />
+                            ),
+                            ol: ({ ...props }) => (
+                              <ol className="list-decimal list-inside mb-2 space-y-1" {...props} />
+                            ),
+                            li: ({ ...props }) => (
+                              <li style={{ color: 'var(--ink)' }} {...props} />
+                            ),
+                            // Style code blocks
+                            code: ({ className, ...props }: { className?: string; children?: React.ReactNode }) => {
+                              const isInline = !className;
+                              return isInline ? (
+                                <code className="bg-gray-100 px-1 rounded text-sm" style={{ background: 'var(--panel)' }} {...props} />
+                              ) : (
+                                <code className="block bg-gray-100 p-2 rounded text-sm overflow-x-auto" style={{ background: 'var(--panel)' }} {...props} />
+                              );
+                            },
+                            // Style horizontal rules
+                            hr: ({ ...props }) => (
+                              <hr className="my-3" style={{ borderColor: 'var(--line)' }} {...props} />
+                            ),
+                            // Style bold text
+                            strong: ({ ...props }) => (
+                              <strong style={{ color: 'var(--emerald)', fontWeight: 'bold' }} {...props} />
+                            ),
+                            // Style paragraphs
+                            p: ({ ...props }) => (
+                              <p className="mb-2" {...props} />
+                            ),
+                          }}
+                        >
+                          {message.text}
+                        </ReactMarkdown>
+                      </div>
                       {message.sender === 'user' && (
                         <p className="text-xs mt-1 text-black/70">
                           {message.timestamp.toLocaleTimeString([], {

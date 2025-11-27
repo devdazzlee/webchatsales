@@ -5,6 +5,7 @@
 export const envConfigExample = {
   // OpenAI Configuration (REQUIRED)
   OPENAI_API_KEY: 'your_openai_api_key_here',
+  OPENAI_MODEL: 'gpt-4o-mini',
   
   // MongoDB Configuration (REQUIRED)
   MONGODB_URI: 'your_mongodb_connection_string_here',
