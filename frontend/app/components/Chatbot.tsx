@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { MessageCircle } from 'lucide-react';
 import { useChatbot } from './ChatbotContext';
 
 interface Message {
@@ -408,22 +409,20 @@ export default function Chatbot() {
       {!isOpen && (
         <button
           onClick={openChatbot}
-          className="fixed bottom-6 right-6 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-colors z-50 animate-pulse sm:w-16 sm:h-16 bg-gradient-emerald hover:opacity-90"
+          className="fixed bottom-6 right-6 flex items-center gap-3 px-5 py-3 rounded-lg transition-all z-50 hover:scale-105"
+          style={{
+            background: 'transparent',
+            border: '2px solid var(--emerald)',
+            color: 'var(--emerald)',
+          }}
           aria-label="Chat with Abby"
         >
-          <svg
-            className="w-6 h-6 text-black"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-            />
-          </svg>
+          {/* Chat Bubble Icon from Lucide */}
+          <MessageCircle className="w-6 h-6" style={{ color: 'var(--emerald)' }} />
+          {/* Text */}
+          <span className="font-medium text-base" style={{ color: 'var(--emerald)' }}>
+            Chat with Abby
+          </span>
         </button>
       )}
 
@@ -461,8 +460,64 @@ export default function Chatbot() {
             style={{ background: 'var(--bg)' }}
           >
             {messages.length === 0 ? (
-              <div className="text-center py-8" style={{ color: 'var(--muted)' }}>
-                <p>Loading...</p>
+              <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                {/* Animated Chat Icon */}
+                <div className="relative">
+                  <div className="animate-pulse">
+                    <svg 
+                      className="w-16 h-16" 
+                      style={{ color: 'var(--emerald)' }}
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                      />
+                    </svg>
+                  </div>
+                  {/* Pulsing ring effect */}
+                  <div 
+                    className="absolute inset-0 rounded-full animate-ping opacity-20"
+                    style={{ 
+                      background: 'var(--emerald)',
+                      animation: 'ping 2s cubic-bezier(0, 0, 0.2, 1) infinite'
+                    }}
+                  ></div>
+                </div>
+                {/* Loading text with dots animation */}
+                <div className="flex items-center gap-2">
+                  <span style={{ color: 'var(--emerald)', fontWeight: '500' }}>Chat with Abby</span>
+                  <div className="flex gap-1">
+                    <span 
+                      className="w-1.5 h-1.5 rounded-full animate-bounce"
+                      style={{ 
+                        background: 'var(--emerald)',
+                        animationDelay: '0ms',
+                        animationDuration: '1.4s'
+                      }}
+                    ></span>
+                    <span 
+                      className="w-1.5 h-1.5 rounded-full animate-bounce"
+                      style={{ 
+                        background: 'var(--emerald)',
+                        animationDelay: '200ms',
+                        animationDuration: '1.4s'
+                      }}
+                    ></span>
+                    <span 
+                      className="w-1.5 h-1.5 rounded-full animate-bounce"
+                      style={{ 
+                        background: 'var(--emerald)',
+                        animationDelay: '400ms',
+                        animationDuration: '1.4s'
+                      }}
+                    ></span>
+                  </div>
+                </div>
               </div>
             ) : (
               messages
@@ -480,7 +535,10 @@ export default function Chatbot() {
                       }`}
                       style={message.sender === 'user' ? {} : { background: 'var(--panel)', color: 'var(--ink)' }}
                     >
-                      <div className="text-sm prose prose-sm max-w-none dark:prose-invert">
+                      <div className="text-sm prose prose-sm max-w-none dark:prose-invert" style={{ 
+                        '--tw-prose-bullets': 'var(--emerald)',
+                        '--tw-prose-counters': 'var(--emerald)',
+                      } as React.CSSProperties}>
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
                           components={{
@@ -529,13 +587,13 @@ export default function Chatbot() {
                             ),
                             // Style lists
                             ul: ({ ...props }) => (
-                              <ul className="list-disc list-inside mb-2 space-y-1" {...props} />
+                              <ul className="list-disc mb-2 space-y-1 ml-4" style={{ listStylePosition: 'outside' }} {...props} />
                             ),
                             ol: ({ ...props }) => (
-                              <ol className="list-decimal list-inside mb-2 space-y-1" {...props} />
+                              <ol className="list-decimal mb-2 space-y-1 ml-4" style={{ listStylePosition: 'outside' }} {...props} />
                             ),
                             li: ({ ...props }) => (
-                              <li style={{ color: 'var(--ink)' }} {...props} />
+                              <li className="pl-2" style={{ color: 'var(--ink)', display: 'list-item' }} {...props} />
                             ),
                             // Style code blocks
                             code: ({ className, ...props }: { className?: string; children?: React.ReactNode }) => {

@@ -74,3 +74,37 @@ body {
   color: var(--muted);
   opacity: 0.6;
 }
+
+/* Fix list styling in chat messages */
+.prose ol,
+.prose ul {
+  list-style-position: outside !important;
+  padding-left: 1.5rem !important;
+}
+
+.prose ol li,
+.prose ul li {
+  display: list-item !important;
+  padding-left: 0.5rem !important;
+  margin-left: 0 !important;
+}
+
+.prose ol li::marker,
+.prose ul li::marker {
+  color: var(--emerald);
+  font-weight: bold;
+}
+
+/* Ensure list items don't break */
+.prose li {
+  display: list-item !important;
+  list-style-position: outside !important;
+}
+
+/* Custom ping animation for loader */
+@keyframes ping {
+  75%, 100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}

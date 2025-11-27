@@ -139,6 +139,118 @@ export class EmailService {
     );
   }
 
+  async sendBusinessInquiryNotification(formData: any) {
+    const inquiryTypesText = formData.inquiryTypes.join(', ') + 
+      (formData.otherInquiry ? ` (Other: ${formData.otherInquiry})` : '');
+    
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #000; color: #22c55e; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-box { background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e; }
+            .label { font-weight: bold; color: #666; margin-right: 10px; }
+            .section { margin: 15px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>📋 New Business Inquiry</h1>
+            </div>
+            <div class="content">
+              <p>You have received a new business inquiry:</p>
+              
+              <div class="info-box">
+                <div class="section">
+                  <p><span class="label">Name:</span> ${formData.name}</p>
+                  <p><span class="label">Email:</span> ${formData.email}</p>
+                  <p><span class="label">Phone:</span> ${formData.phone}</p>
+                  <p><span class="label">Company:</span> ${formData.company}</p>
+                </div>
+                
+                <div class="section">
+                  <p><span class="label">Inquiry Types:</span> ${inquiryTypesText}</p>
+                </div>
+                
+                <div class="section">
+                  <p><span class="label">Description:</span></p>
+                  <p>${formData.description.replace(/\n/g, '<br>')}</p>
+                </div>
+                
+                <div class="section">
+                  <p><span class="label">Preferred Contact:</span> ${formData.contactMethod}</p>
+                  ${formData.bestTime ? `<p><span class="label">Best Time:</span> ${formData.bestTime}</p>` : ''}
+                </div>
+                
+                ${formData.comments ? `
+                <div class="section">
+                  <p><span class="label">Additional Comments:</span></p>
+                  <p>${formData.comments.replace(/\n/g, '<br>')}</p>
+                </div>
+                ` : ''}
+              </div>
+              
+              <p>Please follow up with them soon!</p>
+              <p>Best regards,<br>WebChat Sales System</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
+    if (!adminEmail) {
+      throw new Error('ADMIN_EMAIL or SMTP_EMAIL environment variable is required');
+    }
+    
+    return this.sendEmail(
+      adminEmail,
+      `New Business Inquiry from ${formData.name} - ${formData.company}`,
+      html
+    );
+  }
+
+  async sendBusinessInquiryConfirmation(email: string, name: string) {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #000; color: #22c55e; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>WebChat Sales</h1>
+            </div>
+            <div class="content">
+              <h2>Thank You for Your Inquiry, ${name}!</h2>
+              <p>We've received your business inquiry and our team will get back to you shortly.</p>
+              <p>We typically respond within 1-2 business days.</p>
+              <p>In the meantime, feel free to chat with Abby on our website if you have any questions!</p>
+              <p>Best regards,<br>The WebChat Sales Team</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    return this.sendEmail(
+      email,
+      'Thank You for Your Business Inquiry',
+      html
+    );
+  }
+
   async sendConversationTranscript(email: string, conversation: any) {
     const messagesHtml = conversation.messages
       .map((msg: any) => `
