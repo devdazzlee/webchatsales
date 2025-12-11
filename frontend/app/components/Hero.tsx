@@ -22,6 +22,13 @@ export default function Hero() {
   return (
     <section className="pt-32 pb-20 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
+        {/* Founder Special Banner */}
+        <div className="mb-8 p-4 rounded-lg text-center" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%)', border: '2px solid var(--emerald)' }}>
+          <p className="text-lg font-semibold" style={{ color: 'var(--emerald)' }}>
+            Founder Special: $279 for first month (regular $479/mo) • 4 spots left
+          </p>
+        </div>
+        
         <div className="grid lg:grid-cols-2 gap-12 items-start">
           {/* Left Column - Main Content */}
           <div className="space-y-8">

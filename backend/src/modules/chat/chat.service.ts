@@ -4,6 +4,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { OpenAI } from 'openai';
 import { Conversation, ConversationDocument } from '../../schemas/conversation.schema';
+import { LeadService } from '../lead/lead.service';
+import { SupportService } from '../support/support.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class ChatService {
@@ -13,6 +16,9 @@ export class ChatService {
   constructor(
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
     private configService: ConfigService,
+    private leadService: LeadService,
+    private supportService: SupportService,
+    private emailService: EmailService,
   ) {
     // Get OpenAI API key from environment variables
     const openaiApiKey = 
@@ -112,13 +118,36 @@ export class ChatService {
     }
 
     // Prepare messages for OpenAI API format
-    const systemPrompt = `You are Abby, an AI sales assistant for WebChat Sales. You help businesses with:
-- Lead qualification and booking meetings
-- Customer service inquiries
-- Product information and pricing
-- Sales assistance
+    const systemPrompt = `You are Abby, an AI sales assistant for WebChat Sales. Your role is to:
 
-Be friendly, professional, and helpful. Keep responses concise but informative. Always offer to help with specific next steps.`;
+1. LEAD QUALIFICATION (Primary Focus):
+   - Greet users instantly and warmly
+   - Qualify leads by gathering: name, email, phone, service need, timing, and budget
+   - Ask questions naturally in conversation flow
+   - Handle basic objections with empathy and facts
+   - When qualified, offer to book a demo using a scheduling link
+   - Be friendly, humorous when appropriate, and empathetic
+
+2. SUPPORT HANDLING:
+   - If a user expresses problems, issues, or complaints, acknowledge them immediately
+   - Show empathy and offer solutions
+   - Support tickets are automatically created, so focus on helping the user
+
+3. SALES FLOW:
+   - Guide users through understanding WebChat Sales benefits
+   - Explain pricing clearly (Founder Special: $279 for first month, regular $479/mo)
+   - Use humor and personality to build rapport
+   - Always end with a clear next step
+
+IMPORTANT INSTRUCTIONS:
+- Extract lead information (name, email, phone) from conversation naturally
+- Don't be pushy, but be persistent in a friendly way
+- When booking demos, provide a scheduling link or ask for preferred time
+- Be conversational, not robotic
+- Show personality and humor when appropriate
+- For scheduling, you can say: "I'd love to book a demo for you! What time works best?" or provide a link if available
+
+Remember: Your goal is to qualify leads and book demos while providing excellent customer service.`;
 
     // Convert conversation messages to OpenAI format
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
@@ -167,6 +196,9 @@ Be friendly, professional, and helpful. Keep responses concise but informative. 
       if (fullResponse && fullResponse.trim()) {
         await this.addMessage(sessionId, 'assistant', fullResponse);
         console.log(`[ChatService] Assistant response saved: ${fullResponse.length} chars`);
+        
+        // Process conversation for lead qualification and support detection
+        await this.processConversationForActions(sessionId, userMessage, fullResponse);
       } else {
         console.error(`[ChatService] ERROR: Empty response from AI!`);
         throw new Error('AI returned empty response');
@@ -203,6 +235,198 @@ Be friendly, professional, and helpful. Keep responses concise but informative. 
       { sessionId },
       { isActive: false }
     ).exec();
+  }
+
+  private async processConversationForActions(sessionId: string, userMessage: string, assistantResponse: string) {
+    try {
+      const conversation = await this.getConversation(sessionId);
+      if (!conversation) return;
+
+      // Check for support issues
+      const supportKeywords = ['problem', 'issue', 'complaint', 'error', 'broken', 'not working', 'help', 'fix', 'bug', 'wrong', 'bad', 'terrible', 'awful', 'disappointed', 'frustrated', 'angry'];
+      const userMessageLower = userMessage.toLowerCase();
+      const hasSupportIssue = supportKeywords.some(keyword => userMessageLower.includes(keyword));
+
+      if (hasSupportIssue) {
+        await this.handleSupportIssue(sessionId, conversation);
+      }
+
+      // Extract lead information and check if qualified
+      await this.extractAndSaveLead(sessionId, conversation);
+    } catch (error) {
+      console.error(`[ChatService] Error processing conversation actions:`, error);
+    }
+  }
+
+  private async handleSupportIssue(sessionId: string, conversation: any) {
+    try {
+      // Check if ticket already exists
+      const existingTicket = await this.supportService.getTicketBySessionId(sessionId);
+      if (existingTicket) {
+        return; // Ticket already created
+      }
+
+      // Analyze sentiment
+      const sentiment = this.analyzeSentiment(conversation.messages);
+      
+      // Determine priority based on sentiment and keywords
+      let priority = 'medium';
+      const urgentKeywords = ['urgent', 'critical', 'emergency', 'immediately', 'asap', 'broken', 'down'];
+      const conversationText = conversation.messages.map((m: any) => m.content).join(' ').toLowerCase();
+      if (urgentKeywords.some(kw => conversationText.includes(kw)) || sentiment === 'very_negative') {
+        priority = 'high';
+      }
+
+      // Create transcript
+      const transcript = conversation.messages
+        .map((msg: any) => `${msg.role === 'user' ? 'User' : 'Abby'}: ${msg.content}`)
+        .join('\n\n');
+
+      // Create support ticket
+      const ticket = await this.supportService.createSupportTicket({
+        sessionId,
+        transcript,
+        sentiment,
+        summary: `Support request from ${conversation.userName || 'user'}`,
+        userEmail: conversation.userEmail,
+        userName: conversation.userName,
+        conversationId: conversation._id.toString(),
+        priority,
+      });
+
+      console.log(`[ChatService] ✅ Support ticket created: ${ticket.ticketId}`);
+
+      // Send notification to admin (transcript will be sent to admin endpoint in Phase 2)
+      // For now, we'll log it
+      console.log(`[ChatService] Support ticket ${ticket.ticketId} created for session ${sessionId}`);
+    } catch (error) {
+      console.error(`[ChatService] Error handling support issue:`, error);
+    }
+  }
+
+  private analyzeSentiment(messages: any[]): string {
+    const negativeWords = ['bad', 'terrible', 'awful', 'hate', 'disappointed', 'frustrated', 'angry', 'worst', 'horrible'];
+    const veryNegativeWords = ['hate', 'worst', 'horrible', 'terrible', 'awful', 'angry'];
+    
+    const allText = messages.map(m => m.content).join(' ').toLowerCase();
+    
+    const veryNegativeCount = veryNegativeWords.filter(word => allText.includes(word)).length;
+    const negativeCount = negativeWords.filter(word => allText.includes(word)).length;
+    
+    if (veryNegativeCount >= 2) return 'very_negative';
+    if (negativeCount >= 2) return 'negative';
+    if (negativeCount >= 1) return 'neutral';
+    return 'positive';
+  }
+
+  private async extractAndSaveLead(sessionId: string, conversation: any) {
+    try {
+      // Extract lead information from conversation
+      const messages = conversation.messages.map((m: any) => m.content).join(' ');
+      
+      // Use OpenAI to extract structured lead data
+      const extractionPrompt = `Extract lead information from this conversation. Return JSON with: name, email, phone, serviceNeed, timing, budget. If information is not available, use null.
+
+Conversation:
+${messages}
+
+Return only valid JSON, no other text.`;
+
+      try {
+        const extractionResponse = await this.openaiClient.chat.completions.create({
+          model: this.model,
+          messages: [
+            { role: 'system', content: 'You are a data extraction assistant. Extract lead information from conversations and return only valid JSON.' },
+            { role: 'user', content: extractionPrompt },
+          ],
+          temperature: 0.3,
+          response_format: { type: 'json_object' },
+        });
+
+        const extractedData = JSON.parse(extractionResponse.choices[0].message.content || '{}');
+        
+        // Check if we have enough information to create/update a lead
+        const hasName = extractedData.name && extractedData.name !== 'null' && extractedData.name.trim();
+        const hasEmail = extractedData.email && extractedData.email !== 'null' && extractedData.email.trim();
+        const hasPhone = extractedData.phone && extractedData.phone !== 'null' && extractedData.phone.trim();
+        const hasServiceNeed = extractedData.serviceNeed && extractedData.serviceNeed !== 'null' && extractedData.serviceNeed.trim();
+
+        if (hasName || hasEmail || hasPhone || hasServiceNeed) {
+          // Check if lead already exists
+          let lead = await this.leadService.getLeadBySessionId(sessionId);
+          
+          const leadData: any = {
+            sessionId,
+            conversationId: conversation._id.toString(),
+          };
+
+          if (hasName) leadData.name = extractedData.name.trim();
+          if (hasEmail) leadData.email = extractedData.email.trim();
+          if (hasPhone) leadData.phone = extractedData.phone.trim();
+          if (hasServiceNeed) leadData.serviceNeed = extractedData.serviceNeed.trim();
+          if (extractedData.timing && extractedData.timing !== 'null') leadData.timing = extractedData.timing.trim();
+          if (extractedData.budget && extractedData.budget !== 'null') leadData.budget = extractedData.budget.trim();
+
+          // Generate summary
+          const summaryPrompt = `Summarize this lead in 2-3 sentences: ${JSON.stringify(leadData)}`;
+          try {
+            const summaryResponse = await this.openaiClient.chat.completions.create({
+              model: this.model,
+              messages: [
+                { role: 'system', content: 'You are a lead summarization assistant. Create concise summaries.' },
+                { role: 'user', content: summaryPrompt },
+              ],
+              temperature: 0.5,
+              max_tokens: 100,
+            });
+            leadData.summary = summaryResponse.choices[0].message.content?.trim() || '';
+          } catch (summaryError) {
+            leadData.summary = `Lead interested in ${leadData.serviceNeed || 'services'}`;
+          }
+
+          if (lead) {
+            // Update existing lead
+            await this.leadService.updateLead(sessionId, leadData);
+            console.log(`[ChatService] ✅ Lead updated for session ${sessionId}`);
+          } else {
+            // Create new lead
+            lead = await this.leadService.createLead(leadData);
+            console.log(`[ChatService] ✅ Lead created for session ${sessionId}`);
+
+            // If lead is qualified (has name, email, and service need), send transcript to admin
+            if (hasName && hasEmail && hasServiceNeed) {
+              try {
+                const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
+                if (adminEmail) {
+                  await this.emailService.sendEmail(
+                    adminEmail,
+                    `New Qualified Lead: ${leadData.name}`,
+                    `
+                      <h2>New Qualified Lead</h2>
+                      <p><strong>Name:</strong> ${leadData.name}</p>
+                      <p><strong>Email:</strong> ${leadData.email}</p>
+                      <p><strong>Phone:</strong> ${leadData.phone || 'Not provided'}</p>
+                      <p><strong>Service Need:</strong> ${leadData.serviceNeed}</p>
+                      <p><strong>Timing:</strong> ${leadData.timing || 'Not specified'}</p>
+                      <p><strong>Budget:</strong> ${leadData.budget || 'Not specified'}</p>
+                      <p><strong>Summary:</strong> ${leadData.summary}</p>
+                      <p><strong>Session ID:</strong> ${sessionId}</p>
+                    `
+                  );
+                  console.log(`[ChatService] ✅ Lead notification sent to admin`);
+                }
+              } catch (emailError) {
+                console.error(`[ChatService] Error sending lead notification:`, emailError);
+              }
+            }
+          }
+        }
+      } catch (extractionError) {
+        console.error(`[ChatService] Error extracting lead data:`, extractionError);
+      }
+    } catch (error) {
+      console.error(`[ChatService] Error in extractAndSaveLead:`, error);
+    }
   }
 }
 

@@ -3,6 +3,11 @@ import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ChatModule } from './modules/chat/chat.module';
 import { EmailModule } from './modules/email/email.module';
+import { LeadModule } from './modules/lead/lead.module';
+import { SupportModule } from './modules/support/support.module';
+import { PaymentModule } from './modules/payment/payment.module';
+import { BookingModule } from './modules/booking/booking.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -29,6 +34,11 @@ import { EmailModule } from './modules/email/email.module';
     ),
     ChatModule,
     EmailModule,
+    LeadModule,
+    SupportModule,
+    PaymentModule,
+    BookingModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}

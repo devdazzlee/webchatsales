@@ -294,5 +294,50 @@ export class EmailService {
       html
     );
   }
+
+  async sendPaymentConfirmation(email: string, name: string, amount: number, planType: string) {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #000; color: #22c55e; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-box { background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e; }
+            .label { font-weight: bold; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Payment Confirmation - WebChat Sales</h1>
+            </div>
+            <div class="content">
+              <h2>Thank You for Your Payment, ${name}!</h2>
+              <p>Your payment has been successfully processed.</p>
+              
+              <div class="info-box">
+                <p><span class="label">Amount:</span> $${amount.toFixed(2)}</p>
+                <p><span class="label">Plan:</span> ${planType}</p>
+                <p><span class="label">Date:</span> ${new Date().toLocaleDateString()}</p>
+              </div>
+              
+              <p>Your account has been activated and you can now start using WebChat Sales!</p>
+              <p>If you have any questions, feel free to chat with Abby on our website.</p>
+              <p>Best regards,<br>The WebChat Sales Team</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    return this.sendEmail(
+      email,
+      'Payment Confirmation - WebChat Sales',
+      html
+    );
+  }
 }
 

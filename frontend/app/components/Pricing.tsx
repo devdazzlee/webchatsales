@@ -1,4 +1,19 @@
+'use client';
+
+import { useChatbot } from './ChatbotContext';
+
 export default function Pricing() {
+  const { openChatbot } = useChatbot();
+  
+  const handlePricingButton = (planName: string) => {
+    openChatbot();
+    // Send a message about the plan after a brief delay
+    setTimeout(() => {
+      const event = new CustomEvent('quick-question', { detail: `Tell me more about ${planName}` });
+      window.dispatchEvent(event);
+    }, 500);
+  };
+
   const plans = [
     {
       name: "Abby Solo",
@@ -44,6 +59,13 @@ export default function Pricing() {
   return (
     <section id="pricing" className="py-20 px-4 sm:px-6 lg:px-8" style={{ background: 'var(--bg)' }}>
       <div className="max-w-7xl mx-auto">
+        {/* Founder Special Banner */}
+        <div className="mb-8 p-4 rounded-lg text-center" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%)', border: '2px solid var(--emerald)' }}>
+          <p className="text-lg font-semibold" style={{ color: 'var(--emerald)' }}>
+            Founder Special: $279 for first month (regular $479/mo) • 4 spots left
+          </p>
+        </div>
+        
         <div className="text-center mb-12">
           <h2 className="text-4xl font-bold mb-4" style={{ color: 'var(--ink)' }}>Clear, Transparent Pricing</h2>
           <p style={{ color: 'var(--muted)' }}>
@@ -78,7 +100,10 @@ export default function Pricing() {
                     </li>
                   ))}
                 </ul>
-                <button className={`w-full py-3 px-4 rounded font-medium transition-colors ${plan.buttonClass}`}>
+                <button 
+                  onClick={() => handlePricingButton(plan.name)}
+                  className={`w-full py-3 px-4 rounded font-medium transition-colors ${plan.buttonClass}`}
+                >
                   {plan.buttonText}
                 </button>
               </div>
