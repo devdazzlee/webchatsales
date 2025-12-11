@@ -398,22 +398,40 @@ Return only valid JSON, no other text.`;
               try {
                 const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
                 if (adminEmail) {
+                  // Get full conversation for transcript
+                  const fullConversation = await this.getConversation(sessionId);
+                  
+                  // Create full transcript
+                  const transcriptHtml = fullConversation?.messages
+                    ?.map((msg: any) => `
+                      <div style="margin-bottom: 15px; padding: 10px; background: ${msg.role === 'user' ? '#e3f2fd' : '#f5f5f5'}; border-radius: 4px;">
+                        <strong>${msg.role === 'user' ? 'User' : 'Abby'}:</strong>
+                        <p style="margin: 5px 0 0 0;">${msg.content.replace(/\n/g, '<br>')}</p>
+                        <small style="color: #666;">${new Date(msg.timestamp).toLocaleString()}</small>
+                      </div>
+                    `)
+                    .join('') || '';
+
                   await this.emailService.sendEmail(
                     adminEmail,
                     `New Qualified Lead: ${leadData.name}`,
                     `
                       <h2>New Qualified Lead</h2>
-                      <p><strong>Name:</strong> ${leadData.name}</p>
-                      <p><strong>Email:</strong> ${leadData.email}</p>
-                      <p><strong>Phone:</strong> ${leadData.phone || 'Not provided'}</p>
-                      <p><strong>Service Need:</strong> ${leadData.serviceNeed}</p>
-                      <p><strong>Timing:</strong> ${leadData.timing || 'Not specified'}</p>
-                      <p><strong>Budget:</strong> ${leadData.budget || 'Not specified'}</p>
-                      <p><strong>Summary:</strong> ${leadData.summary}</p>
-                      <p><strong>Session ID:</strong> ${sessionId}</p>
+                      <div style="background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e;">
+                        <p><strong>Name:</strong> ${leadData.name}</p>
+                        <p><strong>Email:</strong> ${leadData.email}</p>
+                        <p><strong>Phone:</strong> ${leadData.phone || 'Not provided'}</p>
+                        <p><strong>Service Need:</strong> ${leadData.serviceNeed}</p>
+                        <p><strong>Timing:</strong> ${leadData.timing || 'Not specified'}</p>
+                        <p><strong>Budget:</strong> ${leadData.budget || 'Not specified'}</p>
+                        <p><strong>Summary:</strong> ${leadData.summary}</p>
+                        <p><strong>Session ID:</strong> ${sessionId}</p>
+                      </div>
+                      <h3>Full Conversation Transcript</h3>
+                      ${transcriptHtml}
                     `
                   );
-                  console.log(`[ChatService] ✅ Lead notification sent to admin`);
+                  console.log(`[ChatService] ✅ Lead notification with transcript sent to admin`);
                 }
               } catch (emailError) {
                 console.error(`[ChatService] Error sending lead notification:`, emailError);

@@ -63,13 +63,13 @@ export class PaymentService {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: any = await response.json();
         console.error('[PaymentService] Square API error:', errorData);
         throw new Error(`Square API error: ${errorData.errors?.[0]?.detail || 'Unknown error'}`);
       }
 
-      const data = await response.json();
-      const paymentLink = data.payment_link;
+      const data: any = await response.json();
+      const paymentLink = data.payment_link || data;
 
       // Store payment record
       const payment = new this.paymentModel({
