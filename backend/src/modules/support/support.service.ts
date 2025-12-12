@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { SupportTicket, SupportTicketDocument } from '../../schemas/support-ticket.schema';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class SupportService {
   constructor(
     @InjectModel(SupportTicket.name) private supportTicketModel: Model<SupportTicketDocument>,
+    private emailService: EmailService,
   ) {}
 
   generateTicketId(): string {
@@ -20,6 +22,7 @@ export class SupportService {
     summary?: string;
     userEmail?: string;
     userName?: string;
+    userPhone?: string;
     conversationId?: string;
     priority?: string;
   }) {
@@ -28,9 +31,40 @@ export class SupportService {
       ...ticketData,
       ticketId,
       openedAt: new Date(),
+      status: 'open', // Ensure status is set
       priority: ticketData.priority || 'medium',
     });
-    return ticket.save();
+    const savedTicket = await ticket.save();
+
+    // Send confirmation email to user
+    if (ticketData.userEmail && ticketData.userName) {
+      try {
+        await this.emailService.sendTicketCreationConfirmation(
+          ticketData.userEmail,
+          ticketData.userName,
+          ticketId
+        );
+        console.log(`[SupportService] ✅ Ticket creation confirmation sent to user: ${ticketData.userEmail}`);
+      } catch (emailError) {
+        console.error(`[SupportService] Error sending ticket confirmation to user:`, emailError);
+      }
+    }
+
+    // Send notification email to admin
+    try {
+      await this.emailService.sendTicketCreationNotification(
+        ticketData.userEmail || 'unknown@example.com',
+        ticketData.userName || 'Unknown User',
+        ticketId,
+        ticketData.summary,
+        ticketData.sentiment || 'neutral'
+      );
+      console.log(`[SupportService] ✅ Ticket creation notification sent to admin`);
+    } catch (emailError) {
+      console.error(`[SupportService] Error sending ticket notification to admin:`, emailError);
+    }
+
+    return savedTicket;
   }
 
   async updateTicketStatus(ticketId: string, status: string) {

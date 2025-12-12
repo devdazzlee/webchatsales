@@ -3,12 +3,14 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { SupportController } from './support.controller';
 import { SupportService } from './support.service';
 import { SupportTicket, SupportTicketSchema } from '../../schemas/support-ticket.schema';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: SupportTicket.name, schema: SupportTicketSchema },
     ]),
+    EmailModule,
   ],
   controllers: [SupportController],
   providers: [SupportService],

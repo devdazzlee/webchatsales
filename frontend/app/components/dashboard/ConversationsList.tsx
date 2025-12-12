@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 
+import { getAuthHeaders, handleAuthError } from '../../utils/auth';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
 interface ConversationsListProps {
@@ -23,7 +25,12 @@ export default function ConversationsList({ onViewConversation }: ConversationsL
   const fetchConversations = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/conversations?limit=${limit}&skip=${(page - 1) * limit}`);
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/conversations?limit=${limit}&skip=${(page - 1) * limit}`, {
+        headers: getAuthHeaders(),
+      });
+      
+      if (handleAuthError(response)) return;
+      
       const data = await response.json();
       if (data.success) {
         setConversations(data.conversations);

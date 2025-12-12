@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Schema as MongooseSchema } from 'mongoose';
 
 export type PaymentDocument = Payment & Document;
 
@@ -32,7 +32,7 @@ export class Payment {
   @Prop({ default: 'pending' })
   status: string; // pending, completed, failed, refunded
 
-  @Prop()
+  @Prop({ type: MongooseSchema.Types.Mixed })
   squareWebhookData: any; // Store full webhook payload
 
   @Prop({ default: Date.now })

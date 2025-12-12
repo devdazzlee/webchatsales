@@ -41,13 +41,16 @@ export class EmailService {
         html,
       });
 
-      console.log('Email sent:', info.messageId);
+      console.log(`[EmailService] ✅ Email sent successfully to: ${to}`);
+      console.log(`[EmailService] 📧 Message ID: ${info.messageId}`);
+      console.log(`[EmailService] 📨 Subject: ${subject}`);
       return {
         success: true,
         messageId: info.messageId,
+        recipient: to,
       };
     } catch (error) {
-      console.error('Email error:', error);
+      console.error(`[EmailService] ❌ Error sending email to ${to}:`, error);
       throw error;
     }
   }
@@ -336,6 +339,274 @@ export class EmailService {
     return this.sendEmail(
       email,
       'Payment Confirmation - WebChat Sales',
+      html
+    );
+  }
+
+  async sendDemoBookingConfirmation(email: string, name: string, timeSlot: Date, serviceNeed?: string) {
+    const formattedDate = new Date(timeSlot).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const formattedTime = new Date(timeSlot).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #000; color: #22c55e; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-box { background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e; }
+            .label { font-weight: bold; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Demo Booking Confirmed! 🎉</h1>
+            </div>
+            <div class="content">
+              <h2>Hello ${name}!</h2>
+              <p>Your demo booking has been confirmed. We're excited to show you how WebChat Sales can help your business!</p>
+              
+              <div class="info-box">
+                <p><span class="label">Date:</span> ${formattedDate}</p>
+                <p><span class="label">Time:</span> ${formattedTime}</p>
+                ${serviceNeed ? `<p><span class="label">Service:</span> ${serviceNeed}</p>` : ''}
+              </div>
+              
+              <p>We'll send you a reminder closer to the demo date. If you need to reschedule or have any questions, please reply to this email.</p>
+              
+              <p>Looking forward to speaking with you!</p>
+              <p>Best regards,<br>The WebChat Sales Team</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    console.log(`[EmailService] 📧 Sending demo booking confirmation to user: ${email}`);
+    return this.sendEmail(
+      email,
+      'Demo Booking Confirmed - WebChat Sales',
+      html
+    );
+  }
+
+  async sendDemoBookingNotification(userEmail: string, userName: string, timeSlot: Date, serviceNeed?: string, userPhone?: string) {
+    const formattedDate = new Date(timeSlot).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const formattedTime = new Date(timeSlot).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #000; color: #22c55e; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-box { background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e; }
+            .label { font-weight: bold; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>📅 New Demo Booking</h1>
+            </div>
+            <div class="content">
+              <p>A new demo booking has been scheduled:</p>
+              
+              <div class="info-box">
+                <p><span class="label">Customer Name:</span> ${userName}</p>
+                <p><span class="label">Email:</span> ${userEmail}</p>
+                ${userPhone ? `<p><span class="label">Phone:</span> ${userPhone}</p>` : ''}
+                <p><span class="label">Date:</span> ${formattedDate}</p>
+                <p><span class="label">Time:</span> ${formattedTime}</p>
+                ${serviceNeed ? `<p><span class="label">Service Interest:</span> ${serviceNeed}</p>` : ''}
+              </div>
+              
+              <p>Please prepare for the demo and confirm the appointment with the customer.</p>
+              <p>Best regards,<br>WebChat Sales System</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
+    if (!adminEmail) {
+      throw new Error('ADMIN_EMAIL or SMTP_EMAIL environment variable is required');
+    }
+    
+    console.log(`[EmailService] 📧 Sending demo booking notification to admin: ${adminEmail}`);
+    return this.sendEmail(
+      adminEmail,
+      `New Demo Booking: ${userName} - ${formattedDate} at ${formattedTime}`,
+      html
+    );
+  }
+
+  async sendLeadQualificationConfirmation(email: string, name: string, serviceNeed?: string, timing?: string, budget?: string) {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #000; color: #22c55e; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-box { background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e; }
+            .label { font-weight: bold; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Thank You, ${name}! 🙏</h1>
+            </div>
+            <div class="content">
+              <h2>We've Received Your Information</h2>
+              <p>Thank you for providing your details. We've successfully saved your information:</p>
+              
+              <div class="info-box">
+                ${serviceNeed ? `<p><span class="label">Service Need:</span> ${serviceNeed}</p>` : ''}
+                ${timing ? `<p><span class="label">Timing:</span> ${timing}</p>` : ''}
+                ${budget ? `<p><span class="label">Budget:</span> ${budget}</p>` : ''}
+              </div>
+              
+              <p>Our team will review your information and get back to you soon. In the meantime, feel free to schedule a demo or chat with Abby if you have any questions!</p>
+              
+              <p>Best regards,<br>The WebChat Sales Team</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    console.log(`[EmailService] 📧 Sending lead qualification confirmation to user: ${email}`);
+    return this.sendEmail(
+      email,
+      'Thank You for Your Interest - WebChat Sales',
+      html
+    );
+  }
+
+  async sendTicketCreationConfirmation(email: string, name: string, ticketId: string) {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #000; color: #22c55e; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-box { background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e; }
+            .label { font-weight: bold; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Support Ticket Created ✅</h1>
+            </div>
+            <div class="content">
+              <h2>Hello ${name}!</h2>
+              <p>We've received your support request and created a ticket for you.</p>
+              
+              <div class="info-box">
+                <p><span class="label">Ticket ID:</span> ${ticketId}</p>
+                <p><span class="label">Status:</span> Open</p>
+                <p><span class="label">Created:</span> ${new Date().toLocaleString()}</p>
+              </div>
+              
+              <p>Our support team will review your ticket and get back to you soon. You'll receive email updates as we work on resolving your issue.</p>
+              
+              <p>If you have any urgent concerns, please don't hesitate to reach out!</p>
+              <p>Best regards,<br>The WebChat Sales Support Team</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    console.log(`[EmailService] 📧 Sending ticket creation confirmation to user: ${email}`);
+    return this.sendEmail(
+      email,
+      `Support Ticket Created: ${ticketId}`,
+      html
+    );
+  }
+
+  async sendTicketCreationNotification(userEmail: string, userName: string, ticketId: string, summary?: string, sentiment?: string) {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #000; color: #22c55e; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-box { background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e; }
+            .label { font-weight: bold; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>🎫 New Support Ticket</h1>
+            </div>
+            <div class="content">
+              <p>A new support ticket has been created:</p>
+              
+              <div class="info-box">
+                <p><span class="label">Ticket ID:</span> ${ticketId}</p>
+                <p><span class="label">Customer Name:</span> ${userName}</p>
+                <p><span class="label">Email:</span> ${userEmail}</p>
+                ${summary ? `<p><span class="label">Summary:</span> ${summary}</p>` : ''}
+                ${sentiment ? `<p><span class="label">Sentiment:</span> ${sentiment}</p>` : ''}
+                <p><span class="label">Created:</span> ${new Date().toLocaleString()}</p>
+              </div>
+              
+              <p>Please review and respond to this ticket promptly.</p>
+              <p>Best regards,<br>WebChat Sales System</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
+    if (!adminEmail) {
+      throw new Error('ADMIN_EMAIL or SMTP_EMAIL environment variable is required');
+    }
+    
+    console.log(`[EmailService] 📧 Sending ticket creation notification to admin: ${adminEmail}`);
+    return this.sendEmail(
+      adminEmail,
+      `New Support Ticket: ${ticketId} from ${userName}`,
       html
     );
   }

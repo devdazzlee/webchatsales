@@ -106,15 +106,31 @@ export default function Chatbot() {
       const data = await response.json();
       if (data.success) {
         setSessionId(data.sessionId);
-        // Add welcome message
-        setMessages([
-          {
-            id: '1',
-            text: 'Hello! I\'m Abby, your AI sales assistant. How can I help you today?',
-            sender: 'abby',
-            timestamp: new Date(),
-          },
-        ]);
+        // Auto-send greeting message asking for name
+        const greetingMessage: Message = {
+          id: '1',
+          text: 'Hi! I\'m Abby, your AI sales assistant. What\'s your name?',
+          sender: 'abby',
+          timestamp: new Date(),
+        };
+        setMessages([greetingMessage]);
+        
+        // Save the greeting message to backend (as assistant message)
+        try {
+          await fetch(`${API_BASE_URL}/api/chat/save-message`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              sessionId: data.sessionId,
+              message: greetingMessage.text,
+              role: 'assistant',
+            }),
+          });
+        } catch (error) {
+          console.error('Error saving greeting message:', error);
+        }
       }
     } catch (error) {
       console.error('Failed to initialize conversation:', error);
@@ -134,7 +150,7 @@ export default function Chatbot() {
     const messageText = inputValue.trim();
     if (!messageText || isLoading || !sessionId) return;
 
-    // Add user message immediately
+    // Add user message immediately to UI
     const userMessage: Message = {
       id: Date.now().toString(),
       text: messageText,
@@ -530,33 +546,45 @@ export default function Chatbot() {
                     <div
                       className={`max-w-[80%] rounded-lg p-3 ${
                         message.sender === 'user'
-                          ? 'bg-gradient-emerald text-black'
+                          ? 'bg-gradient-emerald'
                           : ''
                       }`}
-                      style={message.sender === 'user' ? {} : { background: 'var(--panel)', color: 'var(--ink)' }}
+                      style={message.sender === 'user' ? { 
+                        color: 'black',
+                        // Force all child text to be black for user messages
+                      } : { background: 'var(--panel)', color: 'var(--ink)' }}
                     >
-                      <div className="text-sm prose prose-sm max-w-none dark:prose-invert" style={{ 
-                        '--tw-prose-bullets': 'var(--emerald)',
-                        '--tw-prose-counters': 'var(--emerald)',
-                      } as React.CSSProperties}>
+                      <div 
+                        className="text-sm prose prose-sm max-w-none dark:prose-invert" 
+                        style={{ 
+                          '--tw-prose-bullets': message.sender === 'user' ? 'black' : 'var(--emerald)',
+                          '--tw-prose-counters': message.sender === 'user' ? 'black' : 'var(--emerald)',
+                          '--tw-prose-body': message.sender === 'user' ? 'black' : 'var(--ink)',
+                          '--tw-prose-links': message.sender === 'user' ? 'rgba(0, 0, 0, 0.9)' : 'var(--emerald)',
+                          color: message.sender === 'user' ? 'black' : 'inherit',
+                        } as React.CSSProperties}
+                      >
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
                           components={{
                             // Style headers
                             h1: ({ ...props }) => (
-                              <h1 className="text-xl font-bold mb-2 mt-3" style={{ color: 'var(--emerald)' }} {...props} />
+                              <h1 className="text-xl font-bold mb-2 mt-3" style={{ color: message.sender === 'user' ? 'black' : 'var(--emerald)' }} {...props} />
                             ),
                             h2: ({ ...props }) => (
-                              <h2 className="text-lg font-bold mb-2 mt-3" style={{ color: 'var(--emerald)' }} {...props} />
+                              <h2 className="text-lg font-bold mb-2 mt-3" style={{ color: message.sender === 'user' ? 'black' : 'var(--emerald)' }} {...props} />
                             ),
                             h3: ({ ...props }) => (
-                              <h3 className="text-base font-bold mb-2 mt-2" style={{ color: 'var(--emerald)' }} {...props} />
+                              <h3 className="text-base font-bold mb-2 mt-2" style={{ color: message.sender === 'user' ? 'black' : 'var(--emerald)' }} {...props} />
                             ),
-                            // Style links
+                            // Style links - use dark color for user messages, emerald for assistant
                             a: ({ ...props }) => (
                               <a
                                 className="underline"
-                                style={{ color: 'var(--emerald)' }}
+                                style={{ 
+                                  color: message.sender === 'user' ? 'rgba(0, 0, 0, 0.9)' : 'var(--emerald)',
+                                  fontWeight: message.sender === 'user' ? '500' : 'normal'
+                                }}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 {...props}
@@ -592,9 +620,6 @@ export default function Chatbot() {
                             ol: ({ ...props }) => (
                               <ol className="list-decimal mb-2 space-y-1 ml-4" style={{ listStylePosition: 'outside' }} {...props} />
                             ),
-                            li: ({ ...props }) => (
-                              <li className="pl-2" style={{ color: 'var(--ink)', display: 'list-item' }} {...props} />
-                            ),
                             // Style code blocks
                             code: ({ className, ...props }: { className?: string; children?: React.ReactNode }) => {
                               const isInline = !className;
@@ -610,11 +635,30 @@ export default function Chatbot() {
                             ),
                             // Style bold text
                             strong: ({ ...props }) => (
-                              <strong style={{ color: 'var(--emerald)', fontWeight: 'bold' }} {...props} />
+                              <strong style={{ color: message.sender === 'user' ? 'black' : 'var(--emerald)', fontWeight: 'bold' }} {...props} />
                             ),
-                            // Style paragraphs
+                            // Style list items
+                            li: ({ ...props }) => (
+                              <li 
+                                className="pl-2" 
+                                style={{ 
+                                  color: message.sender === 'user' ? 'black' : 'var(--ink)', 
+                                  display: 'list-item' 
+                                }} 
+                                {...props} 
+                              />
+                            ),
+                            // Style paragraphs - ensure text color is set correctly
                             p: ({ ...props }) => (
-                              <p className="mb-2" {...props} />
+                              <p 
+                                className="mb-2" 
+                                style={{ color: message.sender === 'user' ? 'black' : 'inherit' }}
+                                {...props} 
+                              />
+                            ),
+                            // Style text/span elements to ensure proper color
+                            text: ({ ...props }) => (
+                              <span style={{ color: message.sender === 'user' ? 'black' : 'inherit' }} {...props} />
                             ),
                           }}
                         >
@@ -633,6 +677,7 @@ export default function Chatbot() {
                   </div>
                 ))
             )}
+            
             {/* Typing Indicator - Only show when streaming and waiting for first chunk */}
             {isStreaming && (() => {
               // Get messages with content

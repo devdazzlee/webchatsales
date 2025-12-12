@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 
+import { getAuthHeaders, handleAuthError } from '../../utils/auth';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
 interface ConversationDetailProps {
@@ -22,7 +24,12 @@ export default function ConversationDetail({ sessionId, onBack }: ConversationDe
   const fetchDetails = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/conversation/${sessionId}`);
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/conversation/${sessionId}`, {
+        headers: getAuthHeaders(),
+      });
+      
+      if (handleAuthError(response)) return;
+      
       const data = await response.json();
       if (data.success) {
         setDetails(data.data);

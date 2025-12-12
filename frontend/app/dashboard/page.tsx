@@ -19,13 +19,58 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    // Check authentication (you can add proper auth later)
-    setIsLoading(false);
-  }, []);
+    // Check authentication
+    const token = localStorage.getItem('admin_token');
+    
+    if (!token) {
+      router.push('/login');
+      return;
+    }
 
-  if (isLoading) {
+    // Verify token with backend
+    const verifyAuth = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/verify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ token }),
+        });
+
+        const data = await response.json();
+        
+        if (data.success && data.valid) {
+          setIsAuthenticated(true);
+          setIsLoading(false);
+        } else {
+          // Token is invalid or expired
+          localStorage.removeItem('admin_token');
+          localStorage.removeItem('admin_user');
+          router.push('/login');
+        }
+      } catch (error) {
+        // Network error - might be temporary backend issue
+        console.error('Auth verification error:', error);
+        // Check if token exists - if yes, allow access but token will be verified on next API call
+        // If backend is down, we don't want to lock out the user
+        const hasToken = localStorage.getItem('admin_token');
+        if (hasToken) {
+          setIsAuthenticated(true);
+          setIsLoading(false);
+        } else {
+          router.push('/login');
+        }
+      }
+    };
+
+    verifyAuth();
+  }, [router]);
+
+  if (isLoading || !isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
         <div className="text-center">
@@ -57,13 +102,26 @@ export default function DashboardPage() {
               </div>
               <span className="font-semibold text-lg" style={{ color: 'var(--ink)' }}>WebChat Sales Dashboard</span>
             </div>
-            <button
-              onClick={() => router.push('/')}
-              className="px-4 py-2 text-sm font-medium rounded transition-colors"
-              style={{ border: '1px solid var(--line)', color: 'var(--muted)' }}
-            >
-              Back to Site
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  localStorage.removeItem('admin_token');
+                  localStorage.removeItem('admin_user');
+                  router.push('/login');
+                }}
+                className="px-4 py-2 text-sm font-medium rounded transition-colors"
+                style={{ border: '1px solid var(--line)', color: 'var(--muted)' }}
+              >
+                Logout
+              </button>
+              <button
+                onClick={() => router.push('/')}
+                className="px-4 py-2 text-sm font-medium rounded transition-colors"
+                style={{ border: '1px solid var(--line)', color: 'var(--muted)' }}
+              >
+                Back to Site
+              </button>
+            </div>
           </div>
         </div>
       </header>

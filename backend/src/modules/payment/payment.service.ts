@@ -5,11 +5,25 @@ import { Model } from 'mongoose';
 import { Payment, PaymentDocument } from '../../schemas/payment.schema';
 import { EmailService } from '../email/email.service';
 
+// Square SDK imports
+let SquareClient: any = null;
+let SquareEnvironment: any = null;
+try {
+  const square = require('square');
+  SquareClient = square.SquareClient;
+  SquareEnvironment = square.SquareEnvironment;
+} catch (e) {
+  throw new Error('Square SDK not installed. Run: npm install square');
+}
+
 @Injectable()
 export class PaymentService {
   private squareAccessToken: string;
   private squareApplicationId: string;
-  private squareApiUrl: string;
+  private squareSecret: string;
+  private squareLocationId: string;
+  private squareEnvironment: string;
+  private client: any;
 
   constructor(
     @InjectModel(Payment.name) private paymentModel: Model<PaymentDocument>,
@@ -26,55 +40,150 @@ export class PaymentService {
       process.env.SQUARE_APPLICATION_ID || 
       'sandbox-sq0idb-EzWSCphEv3i3RqREob8OpQ';
     
-    // Use sandbox for development
-    this.squareApiUrl = 'https://connect.squareupsandbox.com';
+    this.squareSecret = 
+      this.configService.get<string>('SQUARE_SECRET') || 
+      process.env.SQUARE_SECRET || 
+      'sandbox-sq0csb-eKP70ZIFH54iq-kpnOD8pZhtrkZFMj0x7ENB5GrRJc8x';
     
-    console.log(`[PaymentService] ✅ Square API initialized (Application ID: ${this.squareApplicationId.substring(0, 20)}...)`);
+    // Location ID can be set directly in env vars to avoid API calls
+    // If not set, will attempt to fetch from Square API
+    // Previously retrieved: LWHJ1BYBBQMF0 (if token issues occur, set this directly)
+    this.squareLocationId = 
+      this.configService.get<string>('SQUARE_LOCATION_ID') || 
+      process.env.SQUARE_LOCATION_ID || 
+      '';
+    
+    this.squareEnvironment = 
+      this.configService.get<string>('SQUARE_ENVIRONMENT') || 
+      process.env.SQUARE_ENVIRONMENT || 
+      'sandbox';
+
+    // Initialize Square client - required, no fallback
+    // Following Square's official documentation format
+    if (!SquareClient || !SquareEnvironment) {
+      throw new Error('Square SDK not available. Install with: npm install square');
+    }
+
+    // Square SDK initialization - matches official documentation
+    this.client = new SquareClient({
+      token: this.squareAccessToken,
+      environment: this.squareEnvironment === 'production' 
+        ? SquareEnvironment.Production 
+        : SquareEnvironment.Sandbox,
+    });
+    
+    console.log(`[PaymentService] ✅ Square SDK initialized (${this.squareEnvironment})`);
   }
 
-  async createPaymentLink(amount: number, planType: string, sessionId: string, userEmail?: string, userName?: string) {
-    try {
-      // Create a payment link using Square API
-      const response = await fetch(`${this.squareApiUrl}/v2/online-checkout/payment-links`, {
-        method: 'POST',
-        headers: {
-          'Square-Version': '2024-01-18',
-          'Authorization': `Bearer ${this.squareAccessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          idempotency_key: `payment_${sessionId}_${Date.now()}`,
-          quick_pay: {
-            name: `WebChat Sales - ${planType}`,
-            price_money: {
-              amount: Math.round(amount * 100), // Convert to cents
-              currency: 'USD',
-            },
-          },
-          checkout_options: {
-            ask_for_shipping_address: false,
-            allow_tipping: false,
-          },
-          pre_populated_data: {
-            buyer_email: userEmail,
-            buyer_phone_number: '',
-          },
-        }),
-      });
+  /**
+   * Get location ID from Square API if not configured
+   * Uses Square SDK locations API
+   */
+  private async getLocationId(): Promise<string> {
+    // If location ID is already configured, return it
+    if (this.squareLocationId) {
+      return this.squareLocationId;
+    }
 
-      if (!response.ok) {
-        const errorData: any = await response.json();
-        console.error('[PaymentService] Square API error:', errorData);
-        throw new Error(`Square API error: ${errorData.errors?.[0]?.detail || 'Unknown error'}`);
+    try {
+      // Use Square SDK locations API - correct method: locations.list()
+      const response = await this.client.locations.list();
+
+      if (response.result && response.result.locations && response.result.locations.length > 0) {
+        const locationId = response.result.locations[0].id;
+        // Cache it for future use
+        this.squareLocationId = locationId;
+        console.log(`[PaymentService] ✅ Retrieved location ID: ${locationId}`);
+        return locationId;
       }
 
-      const data: any = await response.json();
-      const paymentLink = data.payment_link || data;
+      throw new Error('No locations found in Square account');
+    } catch (error: any) {
+      // Check if it's an authentication error
+      if (error.statusCode === 401 || (error.errors && error.errors[0]?.code === 'UNAUTHORIZED')) {
+        console.error('[PaymentService] Authentication error fetching location ID:', error.errors?.[0]?.detail || error.message);
+        throw new Error(
+          'Square access token authentication failed. ' +
+          'Please verify your SQUARE_ACCESS_TOKEN is valid and has not expired. ' +
+          'You can also set SQUARE_LOCATION_ID directly in environment variables. ' +
+          'Get your location ID from: https://developer.squareup.com/apps (Sandbox > Locations)'
+        );
+      }
+      
+      console.error('[PaymentService] Error fetching location ID:', error);
+      throw new Error(
+        'Unable to fetch Square location ID. ' +
+        'Please set SQUARE_LOCATION_ID in environment variables. ' +
+        'Get your location ID from: https://developer.squareup.com/apps (Sandbox > Locations)'
+      );
+    }
+  }
 
-      // Store payment record
+  /**
+   * Create payment link using Square SDK
+   * Follows Square's official documentation structure
+   */
+  async createPaymentLink(amount: number, planType: string, sessionId: string, userEmail?: string, userName?: string) {
+    // Validate amount
+    if (!amount || amount <= 0) {
+      throw new Error('Invalid amount: amount must be greater than 0');
+    }
+
+    // Get location ID (required by Square API)
+    const locationId = await this.getLocationId();
+    
+    // Generate unique idempotency key
+    const idempotencyKey = `payment_${sessionId}_${Date.now()}`;
+    
+    // Convert amount to cents (Square requires amount in smallest currency unit)
+    const amountInCents = Math.round(amount * 100);
+    
+    // Build request body according to Square SDK documentation
+    const requestBody: any = {
+      idempotencyKey,
+      quickPay: {
+        name: `WebChat Sales - ${planType}`,
+        priceMoney: {
+          amount: BigInt(amountInCents), // Square SDK requires BigInt
+          currency: 'USD',
+        },
+        locationId: locationId, // Required by Square API
+      },
+      checkoutOptions: {
+        allowTipping: false,
+        askForShippingAddress: false,
+        redirectUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-success`,
+      },
+    };
+
+    // Add pre-populated data if email is available
+    if (userEmail) {
+      requestBody.prePopulatedData = {
+        buyerEmail: userEmail,
+      };
+    }
+
+    try {
+      // Use Square SDK checkout API - correct method: checkout.paymentLinks.create()
+      const response = await this.client.checkout.paymentLinks.create(requestBody);
+
+      if (!response.result || !response.result.paymentLink) {
+        throw new Error('No payment link in Square response');
+      }
+
+      const paymentLink = response.result.paymentLink;
+      
+      // Extract payment URL
+      const paymentUrl = paymentLink.url || paymentLink.longUrl || '';
+      
+      if (!paymentUrl) {
+        throw new Error('Payment link created but no URL returned');
+      }
+
+      // Store payment record in database
       const payment = new this.paymentModel({
         squarePaymentId: paymentLink.id || `pending_${Date.now()}`,
-        squareOrderId: paymentLink.order_id || '',
+        squareOrderId: paymentLink.orderId || '',
         sessionId,
         userEmail,
         userName,
@@ -86,14 +195,32 @@ export class PaymentService {
       });
       await payment.save();
 
+      console.log(`[PaymentService] ✅ Payment link created: ${paymentUrl}`);
+
       return {
         success: true,
-        paymentLink: paymentLink.url || paymentLink.checkout_page_url,
+        paymentLink: paymentUrl,
         paymentId: payment._id.toString(),
       };
     } catch (error: any) {
       console.error('[PaymentService] Error creating payment link:', error);
-      throw error;
+      
+      // Extract meaningful error message
+      let errorMessage = 'Failed to create payment link';
+      
+      // Handle 404 errors specifically - Checkout API might not be enabled
+      if (error.statusCode === 404 || (error.errors && error.errors[0]?.code === 'NOT_FOUND')) {
+        errorMessage = 
+          'Square Checkout API endpoint not found. ' +
+          'Please ensure the Checkout API is enabled in your Square application. ' +
+          'Go to: https://developer.squareup.com/apps > Your App > API Access > Enable Checkout API';
+      } else if (error.errors && Array.isArray(error.errors) && error.errors.length > 0) {
+        errorMessage = error.errors[0].detail || error.errors[0].message || errorMessage;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      throw new Error(errorMessage);
     }
   }
 
@@ -181,4 +308,3 @@ export class PaymentService {
       .exec();
   }
 }
-

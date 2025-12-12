@@ -59,19 +59,88 @@ export class BookingService {
   }
 
   async getAvailability(date: Date) {
-    // This is a placeholder - implement actual availability logic
-    // For now, return available time slots
+    // Generate all possible time slots for the date
     const slots = [];
     const startHour = 9;
     const endHour = 17;
     
     for (let hour = startHour; hour < endHour; hour++) {
-      const slotDate = new Date(date);
-      slotDate.setHours(hour, 0, 0, 0);
-      slots.push(slotDate);
+      for (let minute = 0; minute < 60; minute += 30) {
+        const slotDate = new Date(date);
+        slotDate.setHours(hour, minute, 0, 0);
+        slots.push(slotDate);
+      }
     }
     
-    return slots;
+    // Get all booked slots for this date (scheduled or confirmed status)
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    const bookedSlots = await this.bookingModel
+      .find({
+        timeSlot: { $gte: startOfDay, $lte: endOfDay },
+        status: { $in: ['scheduled', 'confirmed'] }, // Only count active bookings
+      })
+      .select('timeSlot')
+      .exec();
+    
+    // Extract booked time slots (rounded to nearest 30 minutes)
+    const bookedTimes = bookedSlots.map(booking => {
+      const bookedDate = new Date(booking.timeSlot);
+      bookedDate.setSeconds(0, 0);
+      // Round to nearest 30 minutes
+      const minutes = bookedDate.getMinutes();
+      bookedDate.setMinutes(minutes < 30 ? 0 : 30);
+      return bookedDate.getTime();
+    });
+    
+    // Filter out booked slots
+    const availableSlots = slots.filter(slot => {
+      const slotTime = slot.getTime();
+      return !bookedTimes.includes(slotTime);
+    });
+    
+    return availableSlots;
+  }
+
+  /**
+   * Check if a specific time slot is available
+   */
+  async isTimeSlotAvailable(timeSlot: Date): Promise<boolean> {
+    // Round to nearest 30 minutes for comparison
+    const slot = new Date(timeSlot);
+    slot.setSeconds(0, 0);
+    const minutes = slot.getMinutes();
+    slot.setMinutes(minutes < 30 ? 0 : 30);
+    
+    // Check if there's an existing booking at this time (scheduled or confirmed)
+    const existingBooking = await this.bookingModel
+      .findOne({
+        timeSlot: {
+          $gte: new Date(slot.getTime() - 15 * 60 * 1000), // 15 min before
+          $lte: new Date(slot.getTime() + 15 * 60 * 1000), // 15 min after
+        },
+        status: { $in: ['scheduled', 'confirmed'] },
+      })
+      .exec();
+    
+    return !existingBooking;
+  }
+
+  /**
+   * Check if a user (sessionId) already has a booking
+   */
+  async hasExistingBooking(sessionId: string): Promise<boolean> {
+    const existingBooking = await this.bookingModel
+      .findOne({
+        sessionId,
+        status: { $in: ['scheduled', 'confirmed'] }, // Only count active bookings
+      })
+      .exec();
+    
+    return !!existingBooking;
   }
 }
 

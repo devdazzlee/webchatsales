@@ -39,12 +39,28 @@ export class BookingController {
     };
   }
 
-  @Get(':bookingId')
-  async getBooking(@Param('bookingId') bookingId: string) {
-    const booking = await this.bookingService.getBookingById(bookingId);
+  // Specific routes must come BEFORE parameterized routes (e.g., :bookingId)
+  @Get('availability')
+  async getAvailability(@Query('date') date?: string) {
+    const targetDate = date ? new Date(date) : new Date();
+    const slots = await this.bookingService.getAvailability(targetDate);
     return {
       success: true,
-      booking,
+      slots: slots.map(slot => slot.toISOString()),
+    };
+  }
+
+  @Get('check-session/:sessionId')
+  async checkSessionBooking(@Param('sessionId') sessionId: string) {
+    const hasBooking = await this.bookingService.hasExistingBooking(sessionId);
+    const existingBooking = hasBooking 
+      ? await this.bookingService.getBookingBySessionId(sessionId)
+      : null;
+    
+    return {
+      success: true,
+      hasBooking,
+      booking: existingBooking,
     };
   }
 
@@ -77,13 +93,13 @@ export class BookingController {
     };
   }
 
-  @Get('availability')
-  async getAvailability(@Query('date') date?: string) {
-    const targetDate = date ? new Date(date) : new Date();
-    const slots = await this.bookingService.getAvailability(targetDate);
+  // Parameterized route must come LAST to avoid matching specific routes
+  @Get(':bookingId')
+  async getBooking(@Param('bookingId') bookingId: string) {
+    const booking = await this.bookingService.getBookingById(bookingId);
     return {
       success: true,
-      slots,
+      booking,
     };
   }
 }

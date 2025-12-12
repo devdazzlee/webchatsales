@@ -8,6 +8,7 @@ import { SupportModule } from './modules/support/support.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { BookingModule } from './modules/booking/booking.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     PaymentModule,
     BookingModule,
     DashboardModule,
+    AuthModule,
   ],
 })
 export class AppModule {}

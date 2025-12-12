@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 
+import { getAuthHeaders, handleAuthError } from '../../utils/auth';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
 export default function PaymentsList() {
@@ -21,7 +23,12 @@ export default function PaymentsList() {
     setIsLoading(true);
     try {
       const url = `${API_BASE_URL}/api/dashboard/payments?limit=${limit}&skip=${(page - 1) * limit}${statusFilter ? `&status=${statusFilter}` : ''}`;
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: getAuthHeaders(),
+      });
+      
+      if (handleAuthError(response)) return;
+      
       const data = await response.json();
       if (data.success) {
         setPayments(data.payments);

@@ -7,6 +7,7 @@ import { Conversation, ConversationDocument } from '../../schemas/conversation.s
 import { LeadService } from '../lead/lead.service';
 import { SupportService } from '../support/support.service';
 import { EmailService } from '../email/email.service';
+import { BookingService } from '../booking/booking.service';
 
 @Injectable()
 export class ChatService {
@@ -19,6 +20,7 @@ export class ChatService {
     private leadService: LeadService,
     private supportService: SupportService,
     private emailService: EmailService,
+    private bookingService: BookingService,
   ) {
     // Get OpenAI API key from environment variables
     const openaiApiKey = 
@@ -96,6 +98,209 @@ export class ChatService {
     }
   }
 
+  /**
+   * Determines what qualification question to ask next based on collected lead data
+   * This is a programmatic approach that checks the database for collected information
+   * STRICT: Does not move to next question until current one is properly answered
+   * Returns either a string (question) or an object with question and validation failure info
+   */
+  private async getNextQualificationQuestion(sessionId: string, lastValidationFailure?: { field: string; reason?: string } | null): Promise<string | { question: string; lastFailure?: { field: string; reason?: string } } | null> {
+    // Check existing lead data from database (most reliable source)
+    const existingLead = await this.leadService.getLeadBySessionId(sessionId);
+    
+    // Use AI to validate existing answers to ensure they're still valid
+    // This catches cases where an invalid update attempt should keep us on the same question
+    const hasName = existingLead?.name && existingLead.name.trim().length > 2;
+    
+    // Check email - validate format
+    const hasEmail = existingLead?.email && 
+                     existingLead.email.trim().length > 0 && 
+                     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(existingLead.email.trim());
+    
+    // Check phone - very lenient validation: just needs to contain digits
+    const hasPhone = existingLead?.phone && 
+                     existingLead.phone.trim().length > 0 &&
+                     /\d/.test(existingLead.phone.replace(/\s/g, ''));
+    
+    // Validate existing serviceNeed with AI if it exists
+    let hasServiceNeed = false;
+    if (existingLead?.serviceNeed && existingLead.serviceNeed.trim().length > 3) {
+      const isInvalid = await this.isInvalidAnswer(existingLead.serviceNeed, 'serviceNeed');
+      hasServiceNeed = !isInvalid;
+    }
+    
+    // Validate existing timing and budget with AI if they exist
+    let hasTiming = false;
+    if (existingLead?.timing && existingLead.timing.trim().length > 2) {
+      const isInvalid = await this.isInvalidAnswer(existingLead.timing, 'timing');
+      hasTiming = !isInvalid;
+    }
+    
+    let hasBudget = false;
+    if (existingLead?.budget && existingLead.budget.trim().length > 2) {
+      const isInvalid = await this.isInvalidAnswer(existingLead.budget, 'budget');
+      hasBudget = !isInvalid;
+    }
+
+    // Log current state for debugging
+    console.log(`[ChatService] Qualification state check for ${sessionId}:`, {
+      hasName,
+      hasEmail,
+      hasPhone,
+      hasServiceNeed,
+      hasTiming,
+      hasBudget,
+      name: existingLead?.name,
+      email: existingLead?.email,
+      phone: existingLead?.phone,
+      serviceNeed: existingLead?.serviceNeed,
+      timing: existingLead?.timing,
+      budget: existingLead?.budget
+    });
+
+    // Determine next question based on what's missing (strict order - NO SKIPPING)
+    if (!hasName) {
+      return lastValidationFailure?.field === 'name' 
+        ? { question: "Nice to meet you! What's your name?", lastFailure: lastValidationFailure }
+        : "Nice to meet you! What's your name?";
+    }
+    
+    if (!hasEmail) {
+      const name = existingLead.name;
+      const question = `Great to meet you, ${name}! What's your email address?`;
+      return lastValidationFailure?.field === 'email'
+        ? { question, lastFailure: lastValidationFailure }
+        : question;
+    }
+    
+    if (!hasPhone) {
+      const name = existingLead.name;
+      const question = `Thanks ${name}! What's your phone number?`;
+      return lastValidationFailure?.field === 'phone'
+        ? { question, lastFailure: lastValidationFailure }
+        : question;
+    }
+    
+    if (!hasServiceNeed) {
+      const name = existingLead.name;
+      const question = `Thanks ${name}! What brings you here today? What service are you looking for?`;
+      return lastValidationFailure?.field === 'serviceNeed'
+        ? { question, lastFailure: lastValidationFailure }
+        : question;
+    }
+    
+    if (!hasTiming) {
+      const question = "When are you looking to get started with this?";
+      return lastValidationFailure?.field === 'timing'
+        ? { question, lastFailure: lastValidationFailure }
+        : question;
+    }
+    
+    if (!hasBudget) {
+      const question = "What's your budget range for this project?";
+      return lastValidationFailure?.field === 'budget'
+        ? { question, lastFailure: lastValidationFailure }
+        : question;
+    }
+    
+    // All qualification data collected
+    return null;
+  }
+
+  /**
+   * Checks if an answer is invalid (skip attempts, refusals, vague responses, chatbot name)
+   */
+  /**
+   * Uses AI to analyze if an answer is invalid (skip attempts, refusals, vague responses, or chatbot's name)
+   * @param text The answer text to validate
+   * @param fieldType The type of field being validated (name, serviceNeed, timing, budget)
+   * @returns Promise<boolean> - true if invalid, false if valid
+   */
+  private async isInvalidAnswer(text: string, fieldType: 'name' | 'email' | 'phone' | 'serviceNeed' | 'timing' | 'budget'): Promise<boolean> {
+    if (!text || text.trim().length <= 2) {
+      return true; // Too short to be meaningful
+    }
+
+    try {
+      // Special handling for serviceNeed - be very lenient
+      const isServiceNeedField = fieldType === 'serviceNeed';
+      
+      const validationPrompt = `Analyze if this answer is valid for a ${fieldType} field in a lead qualification form.
+
+Answer to analyze: "${text}"
+
+${isServiceNeedField ? `CRITICAL: For serviceNeed field, be EXTREMELY LENIENT. Accept ANY answer that describes a service, product, or business need, even with typos, poor grammar, or incomplete sentences. Only reject if it's clearly a refusal, skip attempt, or completely vague response.
+
+VALID serviceNeed answers include (but not limited to):
+- "social marketing", "socail marketing" (typo OK), "social media marketing", "socail media marketing" (typos OK)
+- "i want social media marketing", "from you i want to do my socail media marketing" (grammar/typos OK)
+- "website", "e-commerce", "chatbot", "consultation", "customer service"
+- "POS system", "inventory management", "CRM", "automation", "software development"
+- Any phrase containing keywords: marketing, website, software, system, app, platform, service, solution, tool, development, design, etc.
+- Typos are ALWAYS acceptable if the intent is clear (e.g., "socail" = "social", "websit" = "website")
+- Partial sentences are acceptable (e.g., "social media marketing", "want website")
+
+ONLY reject serviceNeed if answer is:
+- A clear refusal: "no", "skip", "I don't want to answer", "not interested"
+- Completely vague: "yes", "no" (without context), "help", "information"
+- A question: "what?", "how?", "why?"
+
+Examples:
+- serviceNeed "social marketing" → VALID
+- serviceNeed "socail marketing" → VALID (typo, but clear intent)
+- serviceNeed "i want socail marketing of my brand" → VALID (typos and grammar OK)
+- serviceNeed "from you i want to do my socail media marketing" → VALID (typos and grammar OK)
+- serviceNeed "consultation" → VALID
+- serviceNeed "yes" → INVALID (too vague)
+- serviceNeed "no" → INVALID (refusal or too vague)
+- serviceNeed "skip" → INVALID (refusal)` : `An answer is INVALID if it:
+- Is an attempt to skip or refuse (e.g., "skip", "I don't want to answer", "no", "not that")
+- Is too vague or generic (e.g., "yes", "no", "help", "information")
+- Is a greeting or question (e.g., "hi", "hello", "what?", "why?")
+- Is the chatbot's name "Abby" (for name field)
+- Does not provide the actual requested information
+- For email: Must be a valid email format (contain @ and domain)
+
+An answer is VALID if it:
+- Provides the actual requested information
+- Is specific and meaningful
+- Answers the question properly
+- For email: Must be valid email format like "user@example.com"
+- For phone: Must be valid phone format with digits (any length is acceptable, minimum 5 characters). Examples: "+1234567890", "(123) 456-7890", "032350536", "1234567890", any format with digits is valid`}
+
+Examples:
+- email "john@example.com" → VALID
+- email "test@domain.com" → VALID
+- email "not an email" → INVALID (not valid format)
+${isServiceNeedField ? '' : `- serviceNeed "consultation" → VALID
+- serviceNeed "chatbot" → VALID
+- serviceNeed "yes" → INVALID (too vague)`}
+
+Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
+
+      const response = await this.openaiClient.chat.completions.create({
+        model: this.model,
+        messages: [
+          { 
+            role: 'system', 
+            content: 'You are a validation assistant. Analyze answers and determine if they are valid or invalid for lead qualification forms. Return only valid JSON.' 
+          },
+          { role: 'user', content: validationPrompt },
+        ],
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        max_tokens: 100,
+      });
+
+      const result = JSON.parse(response.choices[0].message.content || '{}');
+      return result.isInvalid === true;
+    } catch (error) {
+      console.error(`[ChatService] Error validating answer:`, error);
+      // On error, be conservative - reject very short answers only
+      return text.trim().length <= 2;
+    }
+  }
+
   async *streamChatResponse(sessionId: string, userMessage: string) {
     console.log(`[ChatService] Starting streamChatResponse for sessionId: ${sessionId}, message: "${userMessage.substring(0, 50)}..."`);
     
@@ -117,46 +322,163 @@ export class ChatService {
       throw new Error('Failed to retrieve conversation after adding message');
     }
 
-    // Prepare messages for OpenAI API format
-    const systemPrompt = `You are Abby, an AI sales assistant for WebChat Sales. Your role is to:
+    // Get lead state BEFORE extraction to detect validation failures
+    const leadBeforeExtraction = await this.leadService.getLeadBySessionId(sessionId);
+    
+    // Extract lead data from conversation FIRST (this updates the lead in database)
+    await this.extractAndSaveLead(sessionId, conversation);
+    
+    // Refetch lead to ensure we have latest data (database write should be complete)
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // Get lead state AFTER extraction to detect if a field was cleared (validation failure)
+    const leadAfterExtraction = await this.leadService.getLeadBySessionId(sessionId);
+    
+    // Detect validation failure: if a field had a value before but is now null/cleared, it failed validation
+    let lastValidationFailure: { field: string; reason?: string } | null = null;
+    if (leadBeforeExtraction && leadAfterExtraction) {
+      if (leadBeforeExtraction.email && !leadAfterExtraction.email) {
+        lastValidationFailure = { field: 'email', reason: 'Invalid email format' };
+      } else if (leadBeforeExtraction.phone && !leadAfterExtraction.phone) {
+        lastValidationFailure = { field: 'phone', reason: 'Invalid phone format' };
+      } else if (leadBeforeExtraction.serviceNeed && !leadAfterExtraction.serviceNeed) {
+        lastValidationFailure = { field: 'serviceNeed', reason: 'Invalid service need format' };
+      } else if (leadBeforeExtraction.timing && !leadAfterExtraction.timing) {
+        lastValidationFailure = { field: 'timing', reason: 'Invalid timing format' };
+      } else if (leadBeforeExtraction.budget && !leadAfterExtraction.budget) {
+        lastValidationFailure = { field: 'budget', reason: 'Invalid budget format' };
+      }
+    }
 
-1. LEAD QUALIFICATION (Primary Focus):
-   - Greet users instantly and warmly
-   - Qualify leads by gathering: name, email, phone, service need, timing, and budget
-   - Ask questions naturally in conversation flow
-   - Handle basic objections with empathy and facts
-   - When qualified, offer to book a demo using a scheduling link
-   - Be friendly, humorous when appropriate, and empathetic
+    // Determine next qualification question programmatically based on what's in database
+    const nextQuestionResult = await this.getNextQualificationQuestion(sessionId, lastValidationFailure);
+    
+    // Handle null case (all questions answered - qualification complete)
+    const nextQuestion = nextQuestionResult === null 
+      ? null 
+      : (typeof nextQuestionResult === 'string' ? nextQuestionResult : nextQuestionResult.question);
+    
+    // Update lastValidationFailure if provided in result
+    if (nextQuestionResult !== null && typeof nextQuestionResult === 'object' && nextQuestionResult.lastFailure) {
+      lastValidationFailure = nextQuestionResult.lastFailure;
+    }
+    
+    console.log(`[ChatService] Next qualification question for ${sessionId}:`, nextQuestion);
+    if (lastValidationFailure) {
+      console.log(`[ChatService] Last validation failure:`, lastValidationFailure);
+    }
+    
+    // Check if there's an active support ticket for this session (support mode)
+    const activeTicket = await this.supportService.getTicketBySessionId(sessionId);
+    const isSupportMode = activeTicket && activeTicket.status !== 'closed' && activeTicket.status !== 'resolved';
 
-2. SUPPORT HANDLING:
-   - If a user expresses problems, issues, or complaints, acknowledge them immediately
-   - Show empathy and offer solutions
-   - Support tickets are automatically created, so focus on helping the user
+    // Build system prompt based on qualification state and support mode
+    let systemPrompt: string;
+    
+    if (isSupportMode) {
+      // Support mode - Abby should be empathetic and helpful
+      systemPrompt = `You are Abby, a friendly and empathetic AI assistant for WebChat Sales. A support ticket has been created for this user because they reported a problem or issue.
 
-3. SALES FLOW:
-   - Guide users through understanding WebChat Sales benefits
-   - Explain pricing clearly (Founder Special: $279 for first month, regular $479/mo)
-   - Use humor and personality to build rapport
-   - Always end with a clear next step
+IMPORTANT - Support Mode Active:
+- Be empathetic, understanding, and solution-focused
+- Acknowledge their problem and show that you care
+- Provide helpful guidance and support
+- If you can't resolve it directly, reassure them that the support team will help
+- Be patient and professional
+- Continue to be helpful while the ticket is being processed
 
-IMPORTANT INSTRUCTIONS:
-- Extract lead information (name, email, phone) from conversation naturally
-- Don't be pushy, but be persistent in a friendly way
-- When booking demos, provide a scheduling link or ask for preferred time
-- Be conversational, not robotic
-- Show personality and humor when appropriate
-- For scheduling, you can say: "I'd love to book a demo for you! What time works best?" or provide a link if available
+You can still:
+- Answer questions about WebChat Sales services
+- Help with general inquiries
+- But prioritize being supportive and empathetic given their issue
 
-Remember: Your goal is to qualify leads and book demos while providing excellent customer service.`;
+Remember: The user has a support ticket (${activeTicket.ticketId}), so be extra attentive and helpful.`;
+    } else if (nextQuestion) {
+      // Build helpful validation error message if there was a recent failure
+      let validationGuidance = '';
+      if (lastValidationFailure) {
+        const fieldName = lastValidationFailure.field === 'email' ? 'email address' :
+                         lastValidationFailure.field === 'phone' ? 'phone number' :
+                         lastValidationFailure.field === 'serviceNeed' ? 'service you need' :
+                         lastValidationFailure.field === 'timing' ? 'timing' :
+                         lastValidationFailure.field === 'budget' ? 'budget' :
+                         lastValidationFailure.field === 'name' ? 'name' : lastValidationFailure.field;
+        
+        validationGuidance = `\n\nIMPORTANT - Validation Feedback:\nThe user just provided an answer for ${fieldName}, but it wasn't valid.`;
+        
+        if (lastValidationFailure.field === 'email') {
+          validationGuidance += ` Please clearly explain: "I need a valid email address format (like example@email.com). Could you please provide your email address?"`;
+        } else if (lastValidationFailure.field === 'phone') {
+          validationGuidance += ` Please clearly explain: "I need a valid phone number with digits. Could you please provide your phone number?"`;
+        } else if (lastValidationFailure.field === 'serviceNeed') {
+          validationGuidance += ` Please clearly explain: "I need to know what service you're looking for. Could you please tell me what you need help with?"`;
+        } else if (lastValidationFailure.field === 'timing') {
+          validationGuidance += ` Please clearly explain: "I need to know when you want to start. Could you please tell me your timeline?"`;
+        } else if (lastValidationFailure.field === 'budget') {
+          validationGuidance += ` Please clearly explain: "I need to know your budget range. Could you please tell me your budget?"`;
+        } else {
+          validationGuidance += ` Please clearly explain what format is needed and ask again.`;
+        }
+        
+        validationGuidance += ` Then ask: "${nextQuestion}"`;
+      }
+      
+      // Still qualifying - be ABSOLUTELY strict and ask the specific question
+      systemPrompt = `You are Abby, a friendly AI sales assistant for WebChat Sales. You are currently qualifying a lead.
+
+CRITICAL - ABSOLUTE REQUIREMENT - NO EXCEPTIONS:
+You MUST ask this exact question: "${nextQuestion}"${validationGuidance}
+
+MANDATORY RULES - FOLLOW EXACTLY:
+1. Your response MUST ask: "${nextQuestion}"
+2. DO NOT skip this question for ANY reason
+3. DO NOT move to the next question until this one is answered
+4. If user says "skip", "I don't want to answer", "skip this question", or any refusal:
+   → Respond: "I understand, but I need this information to help you. ${nextQuestion}"
+5. If user gives vague answers like "yes", "no", "help", "information":
+   → Respond: "I appreciate that, but I need a more specific answer. ${nextQuestion}"
+6. DO NOT provide information about services until all 6 questions are answered (Name, Email, Phone, Service Need, Timing, Budget)
+7. DO NOT answer other questions until qualification is complete
+8. Stay persistent and friendly - you MUST get an answer to "${nextQuestion}"
+${lastValidationFailure ? '9. If the user just provided an invalid answer, clearly explain what format is needed before asking again.' : ''}
+
+Remember: You CANNOT skip this question. You MUST get a proper answer before moving forward.`;
+    } else {
+      // Qualification complete - offer demo booking
+      const lead = await this.leadService.getLeadBySessionId(sessionId);
+      const schedulingLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/book-demo?sessionId=${sessionId}`;
+      
+      systemPrompt = `You are Abby, a friendly AI sales assistant for WebChat Sales. The lead qualification is complete! 
+
+IMPORTANT - Offer Demo Booking:
+You MUST offer to book a demo now that qualification is complete. Use this exact link: ${schedulingLink}
+
+Your response should:
+1. Congratulate them on completing qualification: "Great! I have all the information I need. Would you like to schedule a demo to see how WebChat Sales can help your business?"
+2. Offer the demo scheduling using a markdown link: "You can book a demo here: [Book a Demo](${schedulingLink})"
+   IMPORTANT: Use markdown link format [Book a Demo](URL) so the link appears as a clickable button
+3. Explain benefits: "During the demo, we'll show you how WebChat Sales can help with ${lead?.serviceNeed || 'your needs'} based on your timeline of ${lead?.timing || 'getting started'} and budget of ${lead?.budget || 'your budget'}."
+4. Be enthusiastic and helpful
+
+CRITICAL: Always format the booking link as a markdown link: [Book a Demo](${schedulingLink}) - never just paste the raw URL
+
+You can also:
+- Answer questions about WebChat Sales services
+- Explain pricing: Founder Special: $279 for first month, regular $479/mo
+- Discuss benefits and features
+- Help with booking demos or confirming times
+
+Be friendly, informative, and focus on converting this qualified lead into a booking.`;
+    }
 
     // Convert conversation messages to OpenAI format
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
     
-    // Add system prompt if this is the first message
-    const historyMessages = conversation.messages.filter(msg => msg.role !== 'system');
-    if (historyMessages.length === 1 && historyMessages[0].role === 'user') {
-      messages.push({ role: 'system', content: systemPrompt });
-    }
+    // Filter out system messages from history
+    const historyMessages = (conversation.messages || []).filter(msg => msg.role !== 'system');
+    
+    // Always include system prompt
+    messages.push({ role: 'system', content: systemPrompt });
     
     // Build conversation history - convert to OpenAI format
     for (const msg of historyMessages) {
@@ -242,12 +564,11 @@ Remember: Your goal is to qualify leads and book demos while providing excellent
       const conversation = await this.getConversation(sessionId);
       if (!conversation) return;
 
-      // Check for support issues
-      const supportKeywords = ['problem', 'issue', 'complaint', 'error', 'broken', 'not working', 'help', 'fix', 'bug', 'wrong', 'bad', 'terrible', 'awful', 'disappointed', 'frustrated', 'angry'];
-      const userMessageLower = userMessage.toLowerCase();
-      const hasSupportIssue = supportKeywords.some(keyword => userMessageLower.includes(keyword));
-
+      // AI-powered support issue detection - check if user is expressing a problem/issue/complaint
+      const hasSupportIssue = await this.detectSupportIssue(userMessage, conversation);
+      
       if (hasSupportIssue) {
+        console.log(`[ChatService] 🔴 Support issue detected for session ${sessionId}`);
         await this.handleSupportIssue(sessionId, conversation);
       }
 
@@ -258,53 +579,181 @@ Remember: Your goal is to qualify leads and book demos while providing excellent
     }
   }
 
+  /**
+   * AI-powered detection to determine if user is expressing a problem, issue, or complaint
+   * This replaces simple keyword matching with intelligent context-aware detection
+   */
+  private async detectSupportIssue(userMessage: string, conversation: any): Promise<boolean> {
+    try {
+      // Get the last few messages for context
+      const recentMessages = conversation.messages.slice(-5).map((m: any) => 
+        `${m.role}: ${m.content}`
+      ).join('\n');
+
+      const detectionPrompt = `Analyze if the user is expressing a PROBLEM, ISSUE, or COMPLAINT that requires support/ticket creation.
+
+User's latest message and recent conversation context:
+${recentMessages}
+
+Determine if the user is:
+1. Reporting a technical problem (e.g., "it's not working", "error", "bug", "broken")
+2. Expressing a complaint (e.g., "disappointed", "frustrated", "this is bad", "not satisfied")
+3. Asking for help with an issue (e.g., "I have a problem with...", "need help fixing...")
+4. Reporting something wrong (e.g., "this doesn't work", "can't access", "failed")
+
+DO NOT create tickets for:
+- General questions about services/products
+- Asking for information
+- Normal conversation
+- Qualification questions
+- Booking requests
+
+Respond with JSON: {"isSupportIssue": true/false, "reason": "brief explanation", "category": "technical|complaint|question|other"}`;
+
+      const response = await this.openaiClient.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a support issue detection assistant. Analyze conversations and determine if they require support ticket creation. Return only valid JSON.'
+          },
+          { role: 'user', content: detectionPrompt },
+        ],
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        max_tokens: 150,
+      });
+
+      const result = JSON.parse(response.choices[0].message.content || '{}');
+      const isSupportIssue = result.isSupportIssue === true;
+
+      if (isSupportIssue) {
+        console.log(`[ChatService] 🔴 Support issue detected: ${result.reason} (Category: ${result.category})`);
+      }
+
+      return isSupportIssue;
+    } catch (error) {
+      console.error(`[ChatService] Error detecting support issue:`, error);
+      // Fallback to basic keyword check if AI fails
+      const supportKeywords = ['problem', 'issue', 'complaint', 'error', 'broken', 'not working', 'fix', 'bug', 'wrong', 'broken', 'not working', 'help with', 'disappointed', 'frustrated', 'angry', 'terrible', 'awful'];
+      const userMessageLower = userMessage.toLowerCase();
+      return supportKeywords.some(keyword => userMessageLower.includes(keyword));
+    }
+  }
+
+  /**
+   * Handle support issue - automatically create ticket with all required fields
+   * This is the core support handling logic that ensures proper ticket creation
+   */
   private async handleSupportIssue(sessionId: string, conversation: any) {
     try {
-      // Check if ticket already exists
+      // Check if ticket already exists for this session
       const existingTicket = await this.supportService.getTicketBySessionId(sessionId);
-      if (existingTicket) {
-        return; // Ticket already created
+      if (existingTicket && existingTicket.status !== 'closed' && existingTicket.status !== 'resolved') {
+        console.log(`[ChatService] ⚠️ Active support ticket already exists: ${existingTicket.ticketId}`);
+        return; // Don't create duplicate tickets
       }
 
-      // Analyze sentiment
-      const sentiment = this.analyzeSentiment(conversation.messages);
+      // Get lead information if available
+      const lead = await this.leadService.getLeadBySessionId(sessionId);
+
+      // AI-powered sentiment analysis
+      const sentimentResult = await this.analyzeSentimentAI(conversation.messages);
       
-      // Determine priority based on sentiment and keywords
-      let priority = 'medium';
-      const urgentKeywords = ['urgent', 'critical', 'emergency', 'immediately', 'asap', 'broken', 'down'];
-      const conversationText = conversation.messages.map((m: any) => m.content).join(' ').toLowerCase();
-      if (urgentKeywords.some(kw => conversationText.includes(kw)) || sentiment === 'very_negative') {
-        priority = 'high';
-      }
+      // AI-powered priority determination
+      const priorityResult = await this.determinePriority(conversation.messages, sentimentResult.sentiment);
+      
+      // Generate comprehensive summary using AI
+      const summary = await this.generateSupportSummary(conversation.messages, lead);
 
-      // Create transcript
+      // Create full transcript with timestamps
       const transcript = conversation.messages
-        .map((msg: any) => `${msg.role === 'user' ? 'User' : 'Abby'}: ${msg.content}`)
+        .map((msg: any) => {
+          const timestamp = msg.timestamp ? new Date(msg.timestamp).toISOString() : new Date().toISOString();
+          return `[${timestamp}] ${msg.role === 'user' ? 'User' : 'Abby'}: ${msg.content}`;
+        })
         .join('\n\n');
 
-      // Create support ticket
+      // Create support ticket with all required fields
       const ticket = await this.supportService.createSupportTicket({
         sessionId,
         transcript,
-        sentiment,
-        summary: `Support request from ${conversation.userName || 'user'}`,
-        userEmail: conversation.userEmail,
-        userName: conversation.userName,
+        sentiment: sentimentResult.sentiment,
+        summary: summary,
+        userEmail: lead?.email || conversation.userEmail,
+        userName: lead?.name || conversation.userName,
+        userPhone: lead?.phone,
         conversationId: conversation._id.toString(),
-        priority,
+        priority: priorityResult.priority,
       });
 
-      console.log(`[ChatService] ✅ Support ticket created: ${ticket.ticketId}`);
+      console.log(`[ChatService] ✅ Support ticket created automatically:`, {
+        ticketId: ticket.ticketId,
+        sessionId,
+        status: ticket.status,
+        priority: ticket.priority,
+        sentiment: ticket.sentiment,
+      });
 
-      // Send notification to admin (transcript will be sent to admin endpoint in Phase 2)
-      // For now, we'll log it
-      console.log(`[ChatService] Support ticket ${ticket.ticketId} created for session ${sessionId}`);
+      // Send ticket to admin dashboard endpoint
+      await this.sendTicketToDashboard(ticket, lead, conversation);
+
+      // Note: Email notifications are sent automatically by SupportService.createSupportTicket
     } catch (error) {
       console.error(`[ChatService] Error handling support issue:`, error);
     }
   }
 
-  private analyzeSentiment(messages: any[]): string {
+  /**
+   * AI-powered sentiment analysis - more accurate than keyword matching
+   */
+  private async analyzeSentimentAI(messages: any[]): Promise<{ sentiment: string; confidence: number }> {
+    try {
+      const conversationText = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+
+      const sentimentPrompt = `Analyze the sentiment of this conversation. Classify as: positive, neutral, negative, or very_negative.
+
+Conversation:
+${conversationText}
+
+Consider:
+- Tone and emotion
+- Problem severity
+- User frustration level
+- Urgency indicators
+
+Respond with JSON: {"sentiment": "positive|neutral|negative|very_negative", "confidence": 0.0-1.0}`;
+
+      const response = await this.openaiClient.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a sentiment analysis assistant. Analyze conversations and classify sentiment. Return only valid JSON.'
+          },
+          { role: 'user', content: sentimentPrompt },
+        ],
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        max_tokens: 100,
+      });
+
+      const result = JSON.parse(response.choices[0].message.content || '{}');
+      return {
+        sentiment: result.sentiment || 'neutral',
+        confidence: result.confidence || 0.5,
+      };
+    } catch (error) {
+      console.error(`[ChatService] Error in AI sentiment analysis:`, error);
+      // Fallback to basic sentiment analysis
+      return { sentiment: this.analyzeSentimentBasic(messages), confidence: 0.5 };
+    }
+  }
+
+  /**
+   * Fallback basic sentiment analysis
+   */
+  private analyzeSentimentBasic(messages: any[]): string {
     const negativeWords = ['bad', 'terrible', 'awful', 'hate', 'disappointed', 'frustrated', 'angry', 'worst', 'horrible'];
     const veryNegativeWords = ['hate', 'worst', 'horrible', 'terrible', 'awful', 'angry'];
     
@@ -319,18 +768,220 @@ Remember: Your goal is to qualify leads and book demos while providing excellent
     return 'positive';
   }
 
-  private async extractAndSaveLead(sessionId: string, conversation: any) {
+  /**
+   * AI-powered priority determination based on sentiment and content analysis
+   */
+  private async determinePriority(messages: any[], sentiment: string): Promise<{ priority: string; reason: string }> {
     try {
-      // Extract lead information from conversation
-      const messages = conversation.messages.map((m: any) => m.content).join(' ');
-      
-      // Use OpenAI to extract structured lead data
-      const extractionPrompt = `Extract lead information from this conversation. Return JSON with: name, email, phone, serviceNeed, timing, budget. If information is not available, use null.
+      const conversationText = messages.map(m => m.content).join('\n');
+
+      const priorityPrompt = `Determine the priority level for this support request: low, medium, high, or urgent.
 
 Conversation:
-${messages}
+${conversationText}
 
-Return only valid JSON, no other text.`;
+Sentiment: ${sentiment}
+
+Consider:
+- Urgency keywords (urgent, critical, emergency, immediately, asap, broken, down, not working)
+- Sentiment level
+- Impact severity
+- Time sensitivity
+
+Respond with JSON: {"priority": "low|medium|high|urgent", "reason": "brief explanation"}`;
+
+      const response = await this.openaiClient.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a support priority assessment assistant. Determine ticket priority levels. Return only valid JSON.'
+          },
+          { role: 'user', content: priorityPrompt },
+        ],
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        max_tokens: 100,
+      });
+
+      const result = JSON.parse(response.choices[0].message.content || '{}');
+      let priority = result.priority || 'medium';
+      
+      // Validate priority values
+      if (!['low', 'medium', 'high', 'urgent'].includes(priority)) {
+        priority = sentiment === 'very_negative' ? 'high' : 'medium';
+      }
+
+      return {
+        priority,
+        reason: result.reason || 'Automatic priority assignment',
+      };
+    } catch (error) {
+      console.error(`[ChatService] Error in priority determination:`, error);
+      // Fallback priority logic
+      const priority = sentiment === 'very_negative' ? 'high' : sentiment === 'negative' ? 'medium' : 'low';
+      return { priority, reason: 'Fallback priority assignment' };
+    }
+  }
+
+  /**
+   * Generate comprehensive support ticket summary using AI
+   */
+  private async generateSupportSummary(messages: any[], lead?: any): Promise<string> {
+    try {
+      const conversationText = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+
+      const summaryPrompt = `Generate a concise summary (2-3 sentences) of this support issue for a support ticket.
+
+Conversation:
+${conversationText}
+
+${lead ? `User Info: ${lead.name}${lead.email ? ` (${lead.email})` : ''}` : ''}
+
+Focus on:
+- What problem the user is experiencing
+- Key details needed for support resolution
+- Any relevant context
+
+Respond with JSON: {"summary": "brief summary text"}`;
+
+      const response = await this.openaiClient.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a support ticket summary generator. Create concise, informative summaries. Return only valid JSON.'
+          },
+          { role: 'user', content: summaryPrompt },
+        ],
+        temperature: 0.3,
+        response_format: { type: 'json_object' },
+        max_tokens: 200,
+      });
+
+      const result = JSON.parse(response.choices[0].message.content || '{}');
+      return result.summary || `Support request from ${lead?.name || 'user'}`;
+    } catch (error) {
+      console.error(`[ChatService] Error generating support summary:`, error);
+      // Fallback summary
+      return `Support request from ${lead?.name || 'user'}`;
+    }
+  }
+
+  /**
+   * Send ticket data to admin dashboard endpoint
+   */
+  private async sendTicketToDashboard(ticket: any, lead?: any, conversation?: any) {
+    try {
+      const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:9000';
+      
+      const ticketData = {
+        ticketId: ticket.ticketId,
+        sessionId: ticket.sessionId,
+        status: ticket.status,
+        priority: ticket.priority,
+        sentiment: ticket.sentiment,
+        summary: ticket.summary,
+        transcript: ticket.transcript,
+        userEmail: ticket.userEmail,
+        userName: ticket.userName,
+        userPhone: lead?.phone,
+        conversationId: ticket.conversationId,
+        openedAt: ticket.openedAt,
+        createdAt: ticket.createdAt,
+        leadInfo: lead ? {
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          serviceNeed: lead.serviceNeed,
+          timing: lead.timing,
+          budget: lead.budget,
+        } : null,
+      };
+
+      const response = await fetch(`${apiBaseUrl}/api/dashboard/ticket`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(ticketData),
+      });
+
+      if (response.ok) {
+        console.log(`[ChatService] ✅ Support ticket sent to dashboard: ${ticket.ticketId}`);
+      } else {
+        console.warn(`[ChatService] ⚠️ Failed to send ticket to dashboard: ${response.status}`);
+      }
+    } catch (error) {
+      // Don't fail ticket creation if dashboard POST fails
+      console.error(`[ChatService] Error sending ticket to dashboard:`, error);
+    }
+  }
+
+  private async extractAndSaveLead(sessionId: string, conversation: any) {
+    try {
+      // Get the last user message to prioritize most recent input
+      const userMessages = conversation.messages.filter((m: any) => m.role === 'user');
+      const lastUserMessage = userMessages.length > 0 ? userMessages[userMessages.length - 1].content : '';
+      const allMessages = conversation.messages.map((m: any) => `${m.role}: ${m.content}`).join('\n');
+      
+      // Use OpenAI to extract structured lead data
+      // ROOT CAUSE: Train the model to understand context and intent, not just keywords
+      const extractionPrompt = `You are a lead qualification data extractor. Extract these 6 fields: name, email, phone, serviceNeed, timing, budget.
+
+CRITICAL PRIORITY: The LAST user message is the most important. If it contradicts or rejects previous answers, DO NOT extract the old values.
+
+EXTRACTION LOGIC:
+
+1. **Name Extraction:**
+   - Extract ONLY when user explicitly states their name: "My name is X", "I'm X", "Call me X", "This is X"
+   - DO NOT extract if name appears in: questions, chatbot's name ("Abby"), third person references
+   - Example: "Can I try Abby?" → name: null (question + chatbot name)
+   - Example: "My name is Ahmed" → name: "Ahmed" (declaration)
+
+2. **Email Extraction:**
+   - Extract email addresses when user explicitly provides them
+   - Valid formats: "myemail@example.com", "email me at test@domain.com", "it's john@email.com"
+   - DO NOT extract email from questions or chatbot responses
+   - Example: "My email is john@example.com" → email: "john@example.com"
+   - Example: "Send it to me" → email: null (no email provided)
+   - Only extract valid email format (must contain @ and domain)
+
+3. **Phone Extraction:**
+   - Extract phone numbers when user explicitly provides them
+   - Valid formats: "+1234567890", "(123) 456-7890", "123-456-7890", "1234567890", "+1 234 567 8900"
+   - DO NOT extract phone from questions or chatbot responses
+   - Example: "My phone is 123-456-7890" → phone: "123-456-7890"
+   - Example: "Call me" → phone: null (no phone provided)
+   - Phone is OPTIONAL - only extract if explicitly provided
+
+4. **Service Need Extraction:**
+   - Extract ONLY from DECLARATIVE statements in the LAST user message: "I need X", "I want X", "I'm looking for X", single words like "consultation", "chatbot", "website"
+   - DO NOT extract from QUESTIONS: "Can I try X?", "What is X?", "How does X work?", "Tell me about X"
+   - DO NOT extract from chatbot's responses
+   - CRITICAL: If the LAST user message is a REJECTION ("no", "skip", "not that", "don't want", "I don't want to answer"), return null for that field
+   - If the LAST user message contains a service need, extract ONLY that (ignore previous mentions)
+   - Valid service needs include: "consultation", "chatbot", "website", "e-commerce", "customer service", etc.
+   - Example: "consultation" → serviceNeed: "consultation" (valid single-word service)
+   - Example: Last message "no" → serviceNeed: null (rejection, don't extract previous "consultation")
+
+4. **Timing & Budget:**
+   - Extract ONLY from the LAST user message if it contains explicit statements: "I want to start in X", "My budget is X"
+   - DO NOT infer or extract from questions
+   - If last message is a rejection, return null
+
+6. **Rejection Detection:**
+   - If the last user message contains: "no", "skip", "not", "don't", "won't", "refuse", "reject", "I don't want", "I don't need", "not interested"
+   - Return null for the field that was being asked about (determine from context)
+
+FULL CONVERSATION (for context):
+${allMessages}
+
+LAST USER MESSAGE (most important - prioritize this):
+"${lastUserMessage}"
+
+Analyze the LAST user message first. Only extract from earlier messages if the last message doesn't contain the information AND is not a rejection.
+Return JSON: {"name": null or "value", "email": null or "value", "phone": null or "value", "serviceNeed": null or "value", "timing": null or "value", "budget": null or "value"}`;
 
       try {
         const extractionResponse = await this.openaiClient.chat.completions.create({
@@ -345,30 +996,255 @@ Return only valid JSON, no other text.`;
 
         const extractedData = JSON.parse(extractionResponse.choices[0].message.content || '{}');
         
-        // Check if we have enough information to create/update a lead
+        console.log(`[ChatService] Extracted data for ${sessionId}:`, extractedData);
+        
+        // Check if we have information (extract name, email, phone, serviceNeed, timing, budget)
         const hasName = extractedData.name && extractedData.name !== 'null' && extractedData.name.trim();
         const hasEmail = extractedData.email && extractedData.email !== 'null' && extractedData.email.trim();
         const hasPhone = extractedData.phone && extractedData.phone !== 'null' && extractedData.phone.trim();
         const hasServiceNeed = extractedData.serviceNeed && extractedData.serviceNeed !== 'null' && extractedData.serviceNeed.trim();
+        
+        // Be STRICT - don't extract invalid/vague responses as valid answers
+        const extractedName = hasName ? extractedData.name.trim() : null;
+        const extractedEmail = hasEmail ? extractedData.email.trim() : null;
+        const extractedPhone = hasPhone ? extractedData.phone.trim() : null;
+        const extractedServiceNeed = hasServiceNeed ? extractedData.serviceNeed.trim() : null;
+        const extractedTiming = extractedData.timing && extractedData.timing !== 'null' ? extractedData.timing.trim() : null;
+        const extractedBudget = extractedData.budget && extractedData.budget !== 'null' ? extractedData.budget.trim() : null;
+        
+        // Validate email format
+        const isValidEmailFormat = extractedEmail ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(extractedEmail) : false;
+        
+        // Validate phone format - very lenient: just needs to contain digits (no hardcoded length requirement)
+        const isValidPhoneFormat = extractedPhone ? /\d/.test(extractedPhone.replace(/\s/g, '')) && extractedPhone.trim().length >= 5 : false;
+        
+        // Use AI to validate each extracted value - reject invalid/vague answers
+        const validationPromises = [];
+        
+        if (extractedName) {
+          validationPromises.push(
+            this.isInvalidAnswer(extractedName, 'name').then(isInvalid => ({
+              field: 'name',
+              value: extractedName,
+              isValid: !isInvalid
+            }))
+          );
+        }
+        
+        // Email validation - check format and if it's not invalid
+        if (extractedEmail) {
+          validationPromises.push(
+            this.isInvalidAnswer(extractedEmail, 'email').then(isInvalid => ({
+              field: 'email',
+              value: extractedEmail,
+              isValid: !isInvalid && isValidEmailFormat
+            }))
+          );
+        }
+        
+        // Phone validation (optional field - only validate if provided)
+        if (extractedPhone) {
+          validationPromises.push(
+            this.isInvalidAnswer(extractedPhone, 'phone').then(isInvalid => ({
+              field: 'phone',
+              value: extractedPhone,
+              isValid: !isInvalid && isValidPhoneFormat
+            }))
+          );
+        }
+        
+        if (extractedServiceNeed) {
+          validationPromises.push(
+            this.isInvalidAnswer(extractedServiceNeed, 'serviceNeed').then(isInvalid => ({
+              field: 'serviceNeed',
+              value: extractedServiceNeed,
+              isValid: !isInvalid && extractedServiceNeed.trim().length > 3
+            }))
+          );
+        }
+        
+        if (extractedTiming) {
+          validationPromises.push(
+            this.isInvalidAnswer(extractedTiming, 'timing').then(isInvalid => ({
+              field: 'timing',
+              value: extractedTiming,
+              isValid: !isInvalid
+            }))
+          );
+        }
+        
+        if (extractedBudget) {
+          validationPromises.push(
+            this.isInvalidAnswer(extractedBudget, 'budget').then(isInvalid => ({
+              field: 'budget',
+              value: extractedBudget,
+              isValid: !isInvalid
+            }))
+          );
+        }
+        
+        // Wait for all validations to complete
+        const validationResults = await Promise.all(validationPromises);
+        
+        const isValidName = validationResults.find(r => r.field === 'name')?.isValid ?? false;
+        const isValidEmail = validationResults.find(r => r.field === 'email')?.isValid ?? false;
+        const isValidPhone = validationResults.find(r => r.field === 'phone')?.isValid ?? false;
+        const isValidServiceNeed = validationResults.find(r => r.field === 'serviceNeed')?.isValid ?? false;
+        const isValidTiming = validationResults.find(r => r.field === 'timing')?.isValid ?? false;
+        const isValidBudget = validationResults.find(r => r.field === 'budget')?.isValid ?? false;
+        
+        // Track which fields failed validation for clear user feedback
+        const validationFailures: string[] = [];
+        if (extractedName !== null && !isValidName) validationFailures.push('name');
+        if (extractedEmail !== null && !isValidEmail) validationFailures.push('email');
+        if (extractedPhone !== null && !isValidPhone) validationFailures.push('phone');
+        if (extractedServiceNeed !== null && !isValidServiceNeed) validationFailures.push('serviceNeed');
+        if (extractedTiming !== null && !isValidTiming) validationFailures.push('timing');
+        if (extractedBudget !== null && !isValidBudget) validationFailures.push('budget');
+        
+        console.log(`[ChatService] AI Validation results for ${sessionId}:`, {
+          isValidName,
+          isValidEmail,
+          isValidPhone,
+          isValidServiceNeed,
+          isValidTiming,
+          isValidBudget,
+          extractedName,
+          extractedEmail,
+          extractedPhone,
+          extractedServiceNeed,
+          validationFailures
+        });
+        
+        // Store validation failures in conversation metadata or pass to next function
+        // We'll use this in getNextQualificationQuestion to provide clear feedback
 
-        if (hasName || hasEmail || hasPhone || hasServiceNeed) {
-          // Check if lead already exists
-          let lead = await this.leadService.getLeadBySessionId(sessionId);
+        // Always try to update lead (even if clearing invalid values)
+        // Check if lead already exists
+        let lead = await this.leadService.getLeadBySessionId(sessionId);
+        
+        // If we have at least one valid piece of information OR we need to clear invalid values
+        if (isValidName || isValidEmail || isValidPhone || isValidServiceNeed || isValidTiming || isValidBudget || 
+            (extractedEmail !== null && !isValidEmail) ||
+            (extractedPhone !== null && !isValidPhone) ||
+            (extractedServiceNeed !== null && !isValidServiceNeed) ||
+            (extractedTiming !== null && !isValidTiming) ||
+            (extractedBudget !== null && !isValidBudget)) {
           
           const leadData: any = {
             sessionId,
             conversationId: conversation._id.toString(),
           };
 
-          if (hasName) leadData.name = extractedData.name.trim();
-          if (hasEmail) leadData.email = extractedData.email.trim();
-          if (hasPhone) leadData.phone = extractedData.phone.trim();
-          if (hasServiceNeed) leadData.serviceNeed = extractedData.serviceNeed.trim();
-          if (extractedData.timing && extractedData.timing !== 'null') leadData.timing = extractedData.timing.trim();
-          if (extractedData.budget && extractedData.budget !== 'null') leadData.budget = extractedData.budget.trim();
+          // Only save VALID answers - do not save invalid/vague responses
+          // IMPORTANT: Only update fields with valid new values
+          // For fields where user provided new value but it's invalid, check if we should clear old value
+          
+          // Check what currently exists in database
+          const currentServiceNeed = lead?.serviceNeed;
+          const currentTiming = lead?.timing;
+          const currentBudget = lead?.budget;
+          
+          if (isValidName) leadData.name = extractedName;
+          
+          // For email: Only save if valid format and not invalid
+          if (extractedEmail !== null) {
+            if (isValidEmail) {
+              leadData.email = extractedEmail;
+            } else {
+              // Invalid email format provided - clear it and mark for feedback
+              leadData.email = null;
+              leadData._lastValidationFailure = { field: 'email', reason: 'Invalid email format' };
+              console.log(`[ChatService] Invalid email "${extractedEmail}" provided. Clearing field.`);
+            }
+          }
+          
+          // For phone: Only save if valid format and not invalid
+          if (extractedPhone !== null) {
+            if (isValidPhone) {
+              leadData.phone = extractedPhone;
+            } else {
+              // Invalid phone format - clear it and mark for feedback
+              leadData.phone = null;
+              leadData._lastValidationFailure = { field: 'phone', reason: 'Invalid phone format' };
+              console.log(`[ChatService] Invalid phone "${extractedPhone}" provided. Clearing field.`);
+            }
+          }
+          
+          // For serviceNeed: If user provided new answer, validate it
+          // IMPORTANT: If extraction returned null (user said "no"/rejected), don't update the field (preserve existing if any)
+          // Only update if extraction found something new
+          if (extractedServiceNeed !== null) {
+            if (isValidServiceNeed) {
+              leadData.serviceNeed = extractedServiceNeed; // Save valid answer
+            } else {
+              // Invalid answer provided - check if this was a rejection or just invalid
+              // If user clearly rejected ("no", "skip"), clear the field
+              const lastUserMessage = conversation.messages
+                .filter((m: any) => m.role === 'user')
+                .map((m: any) => m.content.toLowerCase())
+                .pop() || '';
+              
+              const isRejection = /^(no|skip|not|don'?t|won'?t|refuse|reject|i don'?t want|i don'?t need|not interested)/.test(lastUserMessage.trim());
+              
+              if (isRejection) {
+                // User explicitly rejected - clear the field
+                leadData.serviceNeed = null;
+                console.log(`[ChatService] User rejected serviceNeed question. Clearing field.`);
+              }
+              // If not a clear rejection, don't update (preserve existing value)
+            }
+          }
+          // If extractedServiceNeed is null, don't set leadData.serviceNeed at all (preserves existing value)
+          
+          // Same logic for timing: Clear if invalid
+          if (extractedTiming !== null) {
+            if (isValidTiming) {
+              leadData.timing = extractedTiming;
+            } else {
+              leadData.timing = null;
+              leadData._lastValidationFailure = { field: 'timing', reason: 'Invalid timing format' };
+              console.log(`[ChatService] Invalid timing "${extractedTiming}" provided. Clearing field.`);
+            }
+          }
+          
+          // Same logic for budget: Clear if invalid
+          if (extractedBudget !== null) {
+            if (isValidBudget) {
+              leadData.budget = extractedBudget;
+            } else {
+              leadData.budget = null;
+              leadData._lastValidationFailure = { field: 'budget', reason: 'Invalid budget format' };
+              console.log(`[ChatService] Invalid budget "${extractedBudget}" provided. Clearing field.`);
+            }
+          }
+          
+          // For serviceNeed: Store validation failure if invalid
+          if (extractedServiceNeed !== null && !isValidServiceNeed) {
+            const lastUserMessage = conversation.messages
+              .filter((m: any) => m.role === 'user')
+              .map((m: any) => m.content.toLowerCase())
+              .pop() || '';
+            
+            const isRejection = /^(no|skip|not|don'?t|won'?t|refuse|reject|i don'?t want|i don'?t need|not interested)/.test(lastUserMessage.trim());
+            
+            if (!isRejection) {
+              leadData._lastValidationFailure = { field: 'serviceNeed', reason: 'Invalid service need format' };
+            }
+          }
+          
+          // Clean up temporary validation failure marker before saving
+          delete leadData._lastValidationFailure; // Don't save this to DB
 
-          // Generate summary
-          const summaryPrompt = `Summarize this lead in 2-3 sentences: ${JSON.stringify(leadData)}`;
+          // Generate summary and tags
+          const summaryPrompt = `Summarize this lead in 2-3 sentences: ${JSON.stringify({
+            name: leadData.name || lead?.name,
+            email: leadData.email || lead?.email,
+            serviceNeed: leadData.serviceNeed || lead?.serviceNeed,
+            timing: leadData.timing || lead?.timing,
+            budget: leadData.budget || lead?.budget,
+          })}`;
+          
           try {
             const summaryResponse = await this.openaiClient.chat.completions.create({
               model: this.model,
@@ -381,60 +1257,115 @@ Return only valid JSON, no other text.`;
             });
             leadData.summary = summaryResponse.choices[0].message.content?.trim() || '';
           } catch (summaryError) {
-            leadData.summary = `Lead interested in ${leadData.serviceNeed || 'services'}`;
+            leadData.summary = `Lead interested in ${leadData.serviceNeed || lead?.serviceNeed || 'services'}`;
+          }
+          
+          // Generate tags based on lead data (optional - can be enhanced with AI)
+          // Tags are automatically generated based on service need, timing, budget
+          if (!leadData.tags || leadData.tags.length === 0) {
+            const serviceNeed = leadData.serviceNeed || lead?.serviceNeed;
+            const timing = leadData.timing || lead?.timing;
+            const budget = leadData.budget || lead?.budget;
+            
+            // Simple tag generation - can be enhanced with AI
+            const tags: string[] = [];
+            if (serviceNeed) {
+              const serviceLower = serviceNeed.toLowerCase();
+              if (serviceLower.includes('chatbot')) tags.push('chatbot');
+              if (serviceLower.includes('website')) tags.push('website');
+              if (serviceLower.includes('e-commerce') || serviceLower.includes('ecommerce') || serviceLower.includes('shop')) tags.push('e-commerce');
+              if (serviceLower.includes('consultation')) tags.push('consultation');
+            }
+            if (timing) {
+              const timingLower = timing.toLowerCase();
+              if (timingLower.includes('asap') || timingLower.includes('immediately') || timingLower.includes('urgent')) tags.push('urgent');
+            }
+            if (budget) tags.push('budget-specified');
+            if (tags.length > 0) {
+              leadData.tags = tags;
+            }
+          }
+
+          // Check if all qualification fields are complete (including what we're about to save)
+          const finalName = leadData.name || lead?.name;
+          const finalEmail = leadData.email !== undefined ? leadData.email : lead?.email;
+          const finalPhone = leadData.phone !== undefined ? leadData.phone : lead?.phone;
+          const finalServiceNeed = leadData.serviceNeed !== undefined ? leadData.serviceNeed : lead?.serviceNeed;
+          const finalTiming = leadData.timing !== undefined ? leadData.timing : lead?.timing;
+          const finalBudget = leadData.budget !== undefined ? leadData.budget : lead?.budget;
+          
+          // Validate final phone format if phone exists
+          let finalIsValidPhone = false;
+          if (finalPhone) {
+            // Check if we validated phone in this extraction
+            const phoneValidation = validationResults.find(r => r.field === 'phone');
+            if (phoneValidation) {
+              finalIsValidPhone = phoneValidation.isValid;
+            } else {
+              // Phone exists but wasn't extracted now - validate format
+              finalIsValidPhone = /\d/.test(finalPhone.replace(/\s/g, '')) && finalPhone.trim().length >= 5;
+            }
+          }
+          
+          // Mark as qualified if all fields are collected and valid (including phone)
+          const hasAllFields = finalName && finalEmail && finalPhone && finalServiceNeed && finalTiming && finalBudget;
+          const allFieldsValid = isValidName && 
+                                (finalEmail ? isValidEmail : true) &&
+                                (finalPhone ? finalIsValidPhone : true) &&
+                                (finalServiceNeed ? isValidServiceNeed : true) && 
+                                (finalTiming ? isValidTiming : true) && 
+                                (finalBudget ? isValidBudget : true);
+          
+          if (hasAllFields && allFieldsValid) {
+            leadData.status = 'qualified';
+            
+            // If this is a new qualification (wasn't qualified before), send notification
+            const wasQualifiedBefore = lead?.status === 'qualified';
+            if (!wasQualifiedBefore) {
+              // Will send notification after saving
+              leadData._shouldNotify = true;
+            }
           }
 
           if (lead) {
-            // Update existing lead
+            // Update existing lead - use $set to properly handle null values
             await this.leadService.updateLead(sessionId, leadData);
-            console.log(`[ChatService] ✅ Lead updated for session ${sessionId}`);
-          } else {
-            // Create new lead
+            
+            // Re-fetch to get updated status
+            const updatedLead = await this.leadService.getLeadBySessionId(sessionId);
+            
+            console.log(`[ChatService] ✅ Lead updated for session ${sessionId}`, {
+              name: updatedLead?.name,
+              email: updatedLead?.email,
+              phone: updatedLead?.phone,
+              serviceNeed: updatedLead?.serviceNeed,
+              timing: updatedLead?.timing,
+              budget: updatedLead?.budget,
+              status: updatedLead?.status || 'new'
+            });
+            
+            // Send notification if lead just became qualified
+            if (leadData._shouldNotify && updatedLead?.status === 'qualified') {
+              await this.sendQualifiedLeadNotification(sessionId, updatedLead, conversation);
+            }
+          } else if (isValidName || isValidEmail || isValidPhone || isValidServiceNeed || isValidTiming || isValidBudget) {
+            // Create new lead (will be marked qualified if all fields are present including phone)
+            if (isValidName && isValidEmail && isValidPhone && isValidServiceNeed && isValidTiming && isValidBudget) {
+              leadData.status = 'qualified';
+            }
             lead = await this.leadService.createLead(leadData);
-            console.log(`[ChatService] ✅ Lead created for session ${sessionId}`);
+            console.log(`[ChatService] ✅ Lead created for session ${sessionId}`, {
+              status: leadData.status || 'new',
+              hasAllFields: !!(isValidName && isValidEmail && isValidPhone && isValidServiceNeed && isValidTiming && isValidBudget)
+            });
 
-            // If lead is qualified (has name, email, and service need), send transcript to admin
-            if (hasName && hasEmail && hasServiceNeed) {
-              try {
-                const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
-                if (adminEmail) {
-                  // Get full conversation for transcript
-                  const fullConversation = await this.getConversation(sessionId);
-                  
-                  // Create full transcript
-                  const transcriptHtml = fullConversation?.messages
-                    ?.map((msg: any) => `
-                      <div style="margin-bottom: 15px; padding: 10px; background: ${msg.role === 'user' ? '#e3f2fd' : '#f5f5f5'}; border-radius: 4px;">
-                        <strong>${msg.role === 'user' ? 'User' : 'Abby'}:</strong>
-                        <p style="margin: 5px 0 0 0;">${msg.content.replace(/\n/g, '<br>')}</p>
-                        <small style="color: #666;">${new Date(msg.timestamp).toLocaleString()}</small>
-                      </div>
-                    `)
-                    .join('') || '';
-
-                  await this.emailService.sendEmail(
-                    adminEmail,
-                    `New Qualified Lead: ${leadData.name}`,
-                    `
-                      <h2>New Qualified Lead</h2>
-                      <div style="background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e;">
-                        <p><strong>Name:</strong> ${leadData.name}</p>
-                        <p><strong>Email:</strong> ${leadData.email}</p>
-                        <p><strong>Phone:</strong> ${leadData.phone || 'Not provided'}</p>
-                        <p><strong>Service Need:</strong> ${leadData.serviceNeed}</p>
-                        <p><strong>Timing:</strong> ${leadData.timing || 'Not specified'}</p>
-                        <p><strong>Budget:</strong> ${leadData.budget || 'Not specified'}</p>
-                        <p><strong>Summary:</strong> ${leadData.summary}</p>
-                        <p><strong>Session ID:</strong> ${sessionId}</p>
-                      </div>
-                      <h3>Full Conversation Transcript</h3>
-                      ${transcriptHtml}
-                    `
-                  );
-                  console.log(`[ChatService] ✅ Lead notification with transcript sent to admin`);
-                }
-              } catch (emailError) {
-                console.error(`[ChatService] Error sending lead notification:`, emailError);
+            // If lead is qualified (has all required fields including phone), send transcript to admin
+            // Check final state after creation
+            const finalLead = await this.leadService.getLeadBySessionId(sessionId);
+            if (finalLead) {
+              const finalHasAllFields = finalLead.name && finalLead.email && finalLead.phone && finalLead.serviceNeed && finalLead.timing && finalLead.budget;
+              if (finalHasAllFields && finalLead.status === 'qualified') {
+                await this.sendQualifiedLeadNotification(sessionId, finalLead, conversation);
               }
             }
           }
@@ -444,6 +1375,211 @@ Return only valid JSON, no other text.`;
       }
     } catch (error) {
       console.error(`[ChatService] Error in extractAndSaveLead:`, error);
+    }
+  }
+
+  /**
+   * Sends qualified lead notification with transcript to admin
+   */
+  private async sendQualifiedLeadNotification(sessionId: string, lead: any, conversation: any) {
+    try {
+      // Get full conversation for transcript
+      const fullConversation = await this.getConversation(sessionId);
+      
+      // Create full transcript
+      const transcript = fullConversation?.messages
+        ?.map((msg: any) => `${msg.role === 'user' ? 'User' : 'Abby'}: ${msg.content}`)
+        .join('\n\n') || '';
+      
+      const transcriptHtml = fullConversation?.messages
+        ?.map((msg: any) => `
+          <div style="margin-bottom: 15px; padding: 10px; background: ${msg.role === 'user' ? '#e3f2fd' : '#f5f5f5'}; border-radius: 4px;">
+            <strong>${msg.role === 'user' ? 'User' : 'Abby'}:</strong>
+            <p style="margin: 5px 0 0 0;">${msg.content.replace(/\n/g, '<br>')}</p>
+            <small style="color: #666;">${new Date(msg.timestamp).toLocaleString()}</small>
+          </div>
+        `)
+        .join('') || '';
+
+      // Send email notification to admin
+      const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
+      if (adminEmail) {
+        try {
+          await this.emailService.sendEmail(
+            adminEmail,
+            `New Qualified Lead: ${lead.name}`,
+            `
+              <h2>New Qualified Lead</h2>
+              <div style="background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e;">
+                <p><strong>Name:</strong> ${lead.name}</p>
+                <p><strong>Email:</strong> ${lead.email || 'Not provided'}</p>
+                <p><strong>Phone:</strong> ${lead.phone || 'Not provided'}</p>
+                <p><strong>Service Need:</strong> ${lead.serviceNeed}</p>
+                <p><strong>Timing:</strong> ${lead.timing || 'Not specified'}</p>
+                <p><strong>Budget:</strong> ${lead.budget || 'Not specified'}</p>
+                <p><strong>Summary:</strong> ${lead.summary || 'Not provided'}</p>
+                <p><strong>Session ID:</strong> ${sessionId}</p>
+              </div>
+              <h3>Full Conversation Transcript</h3>
+              ${transcriptHtml}
+            `
+          );
+          console.log(`[ChatService] ✅ Lead notification with transcript sent to admin: ${adminEmail}`);
+        } catch (emailError) {
+          console.error(`[ChatService] Error sending email notification to admin:`, emailError);
+        }
+      }
+
+      // Send confirmation email to user
+      if (lead.email) {
+        try {
+          await this.emailService.sendLeadQualificationConfirmation(
+            lead.email,
+            lead.name,
+            lead.serviceNeed,
+            lead.timing,
+            lead.budget
+          );
+          console.log(`[ChatService] ✅ Lead qualification confirmation sent to user: ${lead.email}`);
+        } catch (emailError) {
+          console.error(`[ChatService] Error sending confirmation email to user:`, emailError);
+        }
+      }
+
+      // POST transcript to admin endpoint (for dashboard/Phase 2)
+      try {
+        const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:9000';
+        // Note: This requires authentication, but since it's an internal call, we'll skip auth for now
+        // In production, you might want to use a service-to-service token or call the service directly
+        const response = await fetch(`${apiBaseUrl}/api/dashboard/transcript`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            sessionId,
+            transcript,
+            lead: {
+              name: lead.name,
+              email: lead.email,
+              phone: lead.phone,
+              serviceNeed: lead.serviceNeed,
+              timing: lead.timing,
+              budget: lead.budget,
+              tags: lead.tags || [],
+              summary: lead.summary,
+              status: lead.status,
+              qualifiedAt: lead.qualifiedAt,
+              createdAt: lead.createdAt,
+              updatedAt: lead.updatedAt,
+            },
+            conversationId: conversation._id.toString(),
+          }),
+        });
+        
+        if (response.ok) {
+          console.log(`[ChatService] ✅ Transcript POSTed to admin endpoint successfully`);
+        } else {
+          console.warn(`[ChatService] ⚠️ Failed to POST transcript to admin endpoint: ${response.status}`);
+        }
+      } catch (postError) {
+        // Don't fail the whole process if POST fails
+        console.error(`[ChatService] Error POSTing transcript to admin endpoint:`, postError);
+      }
+      
+      console.log(`[ChatService] ✅ Qualified lead saved. Transcript available via /api/dashboard/conversation/${sessionId}`);
+      
+    } catch (error) {
+      console.error(`[ChatService] Error sending qualified lead notification:`, error);
+    }
+  }
+
+  /**
+   * Handle demo booking when user confirms a time slot
+   */
+  async handleDemoBooking(sessionId: string, timeSlot: Date, notes?: string): Promise<any> {
+    try {
+      // Check if user already has a booking
+      const hasBooking = await this.bookingService.hasExistingBooking(sessionId);
+      if (hasBooking) {
+        throw new Error('You already have a booking. Please cancel your existing booking before creating a new one.');
+      }
+
+      // Check if time slot is available
+      const isAvailable = await this.bookingService.isTimeSlotAvailable(timeSlot);
+      if (!isAvailable) {
+        throw new Error('This time slot is no longer available. Please select a different time.');
+      }
+
+      // Get lead for this session
+      const lead = await this.leadService.getLeadBySessionId(sessionId);
+      if (!lead) {
+        throw new Error('Lead not found for this session');
+      }
+
+      // Get conversation
+      const conversation = await this.getConversation(sessionId);
+      if (!conversation) {
+        throw new Error('Conversation not found');
+      }
+
+      // Create scheduling link (can be customized)
+      const schedulingLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/book-demo?sessionId=${sessionId}&timeSlot=${timeSlot.toISOString()}`;
+
+      // Create booking
+      const booking = await this.bookingService.createBooking({
+        sessionId,
+        leadId: lead._id.toString(),
+        timeSlot,
+        schedulingLink,
+        userEmail: lead.email,
+        userName: lead.name,
+        userPhone: lead.phone,
+        notes: notes || `Demo booking for ${lead.serviceNeed}`,
+        conversationId: conversation._id.toString(),
+      });
+
+      // Update lead status to booked
+      await this.leadService.updateLead(sessionId, { status: 'booked' });
+
+      // Send confirmation email to user
+      if (lead.email) {
+        try {
+          await this.emailService.sendDemoBookingConfirmation(
+            lead.email,
+            lead.name,
+            timeSlot,
+            lead.serviceNeed
+          );
+          console.log(`[ChatService] ✅ Demo booking confirmation sent to user: ${lead.email}`);
+        } catch (emailError) {
+          console.error(`[ChatService] Error sending demo booking confirmation to user:`, emailError);
+        }
+      }
+
+      // Send notification email to admin
+      try {
+        await this.emailService.sendDemoBookingNotification(
+          lead.email,
+          lead.name,
+          timeSlot,
+          lead.serviceNeed,
+          lead.phone
+        );
+        console.log(`[ChatService] ✅ Demo booking notification sent to admin`);
+      } catch (emailError) {
+        console.error(`[ChatService] Error sending demo booking notification to admin:`, emailError);
+      }
+
+      console.log(`[ChatService] ✅ Demo booking created for session ${sessionId}`, {
+        bookingId: booking._id,
+        timeSlot: timeSlot.toISOString(),
+      });
+
+      return booking;
+    } catch (error) {
+      console.error(`[ChatService] Error creating demo booking:`, error);
+      throw error;
     }
   }
 }

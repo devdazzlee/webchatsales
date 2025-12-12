@@ -209,8 +209,37 @@ export class DashboardService {
     };
   }
 
-  async getAllBookings(limit = 50, skip = 0, status?: string) {
-    const query = status ? { status } : {};
+  async getAllBookings(limit = 50, skip = 0, status?: string, dateFrom?: string, dateTo?: string, search?: string) {
+    const query: any = {};
+    
+    // Status filter
+    if (status) {
+      query.status = status;
+    }
+    
+    // Date range filter (for timeSlot)
+    if (dateFrom || dateTo) {
+      query.timeSlot = {};
+      if (dateFrom) {
+        const fromDate = new Date(dateFrom);
+        fromDate.setHours(0, 0, 0, 0);
+        query.timeSlot.$gte = fromDate;
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        query.timeSlot.$lte = toDate;
+      }
+    }
+    
+    // Search filter (name or email)
+    if (search) {
+      query.$or = [
+        { userName: { $regex: search, $options: 'i' } },
+        { userEmail: { $regex: search, $options: 'i' } },
+      ];
+    }
+    
     const [bookings, total] = await Promise.all([
       this.bookingModel
         .find(query)

@@ -29,9 +29,17 @@ export class LeadService {
   }
 
   async updateLead(sessionId: string, updateData: Partial<Lead>) {
+    // Use $set to properly handle null values (to clear fields)
+    const setData: any = {};
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] !== undefined) {
+        setData[key] = updateData[key];
+      }
+    });
+    
     return this.leadModel.findOneAndUpdate(
       { sessionId },
-      updateData,
+      { $set: setData },
       { new: true, upsert: false }
     ).exec();
   }

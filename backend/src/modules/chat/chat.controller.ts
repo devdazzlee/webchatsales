@@ -89,6 +89,32 @@ export class ChatController {
     }
   }
 
+  @Post('save-message')
+  async saveMessageOnly(@Body() body: { sessionId: string; message: string; role?: 'user' | 'assistant' }) {
+    const { sessionId, message, role = 'user' } = body;
+
+    if (!sessionId || !message) {
+      return {
+        success: false,
+        error: 'Session ID and message are required',
+      };
+    }
+
+    try {
+      await this.chatService.addMessage(sessionId, role, message);
+      return {
+        success: true,
+        message: 'Message saved successfully',
+      };
+    } catch (error: any) {
+      console.error(`[ChatController] Error saving message:`, error);
+      return {
+        success: false,
+        error: error?.message || 'Failed to save message',
+      };
+    }
+  }
+
   @Get('conversation/:sessionId')
   async getConversation(@Param('sessionId') sessionId: string) {
     const conversation = await this.chatService.getConversation(sessionId);
@@ -116,6 +142,38 @@ export class ChatController {
       success: true,
       message: 'Conversation ended',
     };
+  }
+
+  @Post('book-demo')
+  async bookDemo(@Body() body: { sessionId: string; timeSlot: string; notes?: string }) {
+    try {
+      const { sessionId, timeSlot, notes } = body;
+      
+      if (!sessionId || !timeSlot) {
+        return {
+          success: false,
+          error: 'Session ID and time slot are required',
+        };
+      }
+
+      const booking = await this.chatService.handleDemoBooking(
+        sessionId,
+        new Date(timeSlot),
+        notes
+      );
+
+      return {
+        success: true,
+        booking,
+        message: 'Demo booking created successfully',
+      };
+    } catch (error: any) {
+      console.error(`[ChatController] Error booking demo:`, error);
+      return {
+        success: false,
+        error: error?.message || 'Failed to book demo',
+      };
+    }
   }
 }
 

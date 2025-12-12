@@ -1,17 +1,31 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useChatbot } from './ChatbotContext';
 
 export default function Pricing() {
+  const router = useRouter();
   const { openChatbot } = useChatbot();
   
-  const handlePricingButton = (planName: string) => {
-    openChatbot();
-    // Send a message about the plan after a brief delay
-    setTimeout(() => {
-      const event = new CustomEvent('quick-question', { detail: `Tell me more about ${planName}` });
-      window.dispatchEvent(event);
-    }, 500);
+  const handlePricingButton = (plan: { name: string; tier: string; price: string; planType: string }) => {
+    // For Enterprise, open chat instead
+    if (plan.tier === 'Enterprise') {
+      openChatbot();
+      setTimeout(() => {
+        const event = new CustomEvent('quick-question', { detail: `Tell me more about ${plan.name}` });
+        window.dispatchEvent(event);
+      }, 500);
+      return;
+    }
+
+    // Navigate to payment page with plan info
+    const params = new URLSearchParams({
+      plan: plan.name,
+      tier: plan.tier,
+      price: plan.price,
+      planType: plan.planType,
+    });
+    router.push(`/payment?${params.toString()}`);
   };
 
   const plans = [
@@ -19,6 +33,7 @@ export default function Pricing() {
       name: "Abby Solo",
       tier: "Starter",
       price: "$497",
+      planType: "starter",
       description: "Abby on your website (1 domain)",
       features: [
         "Leads engaged 24/7 (basic flows)",
@@ -32,6 +47,7 @@ export default function Pricing() {
       name: "Abby + Channels",
       tier: "Growth",
       price: "$897",
+      planType: "growth",
       description: "Everything in Starter",
       features: [
         "Social & email channels connected",
@@ -45,6 +61,7 @@ export default function Pricing() {
       name: "Abby Full Stack",
       tier: "Enterprise",
       price: "$1,999",
+      planType: "enterprise",
       description: "Everything in Growth",
       features: [
         "White-glove optimization + SLAs",
@@ -101,7 +118,7 @@ export default function Pricing() {
                   ))}
                 </ul>
                 <button 
-                  onClick={() => handlePricingButton(plan.name)}
+                  onClick={() => handlePricingButton(plan)}
                   className={`w-full py-3 px-4 rounded font-medium transition-colors ${plan.buttonClass}`}
                 >
                   {plan.buttonText}

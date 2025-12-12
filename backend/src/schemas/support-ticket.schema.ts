@@ -33,6 +33,9 @@ export class SupportTicket {
   userName: string;
 
   @Prop()
+  userPhone: string;
+
+  @Prop()
   conversationId: string; // Reference to conversation
 
   @Prop({ default: Date.now })

@@ -6,6 +6,7 @@ import { Conversation, ConversationSchema } from '../../schemas/conversation.sch
 import { LeadModule } from '../lead/lead.module';
 import { SupportModule } from '../support/support.module';
 import { EmailModule } from '../email/email.module';
+import { BookingModule } from '../booking/booking.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { EmailModule } from '../email/email.module';
     LeadModule,
     SupportModule,
     EmailModule,
+    BookingModule,
   ],
   controllers: [ChatController],
   providers: [ChatService],

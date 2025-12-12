@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
 
+import { getAuthHeaders, handleAuthError } from '../../utils/auth';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
 interface DashboardStatsProps {
@@ -20,7 +22,12 @@ export default function DashboardStats({ onViewConversation }: DashboardStatsPro
 
   const fetchStats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/stats`);
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/stats`, {
+        headers: getAuthHeaders(),
+      });
+      
+      if (handleAuthError(response)) return;
+      
       const data = await response.json();
       if (data.success) {
         setStats(data.data);

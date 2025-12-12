@@ -14,14 +14,22 @@ export class PaymentController {
     userEmail?: string;
     userName?: string;
   }) {
-    const result = await this.paymentService.createPaymentLink(
-      body.amount,
-      body.planType,
-      body.sessionId,
-      body.userEmail,
-      body.userName
-    );
-    return result;
+    try {
+      const result = await this.paymentService.createPaymentLink(
+        body.amount,
+        body.planType,
+        body.sessionId,
+        body.userEmail,
+        body.userName
+      );
+      return result;
+    } catch (error: any) {
+      console.error('[PaymentController] Error creating payment link:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to create payment link',
+      };
+    }
   }
 
   @Post('webhook')
