@@ -2,10 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { PaymentForm, CreditCard } from 'react-square-web-payments-sdk';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
+const SQUARE_APPLICATION_ID = process.env.NEXT_PUBLIC_SQUARE_APPLICATION_ID || 'sandbox-sq0idb-EzWSCphEv3i3RqREob8OpQ';
+const SQUARE_LOCATION_ID = process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID || 'LWHJ1BYBBQMF0';
 
 export default function PaymentPage() {
   const router = useRouter();
@@ -25,6 +28,12 @@ export default function PaymentPage() {
     email: '',
     phone: '',
     company: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    countryCode: 'US',
   });
 
   useEffect(() => {
@@ -47,7 +56,7 @@ export default function PaymentPage() {
     }
   }, [searchParams, router]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
@@ -78,14 +87,24 @@ export default function PaymentPage() {
       setError('Phone number is required');
       return false;
     }
+    if (!formData.addressLine1.trim()) {
+      setError('Billing address is required');
+      return false;
+    }
+    if (!formData.city.trim()) {
+      setError('City is required');
+      return false;
+    }
+    if (!formData.postalCode.trim()) {
+      setError('Postal code is required');
+      return false;
+    }
     return true;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const handlePaymentToken = async (token: any, buyer: any) => {
     if (!plan) return;
-    
+
     if (!validateForm()) {
       return;
     }
@@ -100,32 +119,46 @@ export default function PaymentPage() {
       // Generate a session ID for this payment
       const sessionId = `payment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
-      // Create payment link with user information
-      const response = await fetch(`${API_BASE_URL}/api/payment/create-link`, {
+      // Process payment with tokenized card
+      const response = await fetch(`${API_BASE_URL}/api/payment/process`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          sourceId: token.token,
           amount: amount,
           planType: plan.planType,
           sessionId: sessionId,
           userEmail: formData.email,
           userName: `${formData.firstName} ${formData.lastName}`,
+          billingContact: {
+            givenName: formData.firstName,
+            familyName: formData.lastName,
+            email: formData.email,
+            address: {
+              addressLine1: formData.addressLine1,
+              addressLine2: formData.addressLine2 || undefined,
+              city: formData.city,
+              state: formData.state || undefined,
+              postalCode: formData.postalCode,
+              countryCode: formData.countryCode,
+            },
+          },
         }),
       });
 
       const data = await response.json();
       
-      if (data.success && data.paymentLink) {
-        // Redirect to Square checkout
-        window.location.href = data.paymentLink;
+      if (data.success) {
+        // Redirect to success page
+        router.push(`/payment-success?paymentId=${data.paymentId}&status=${data.status}`);
       } else {
-        throw new Error(data.error || 'Failed to create payment link');
+        throw new Error(data.error || 'Payment processing failed');
       }
     } catch (error: any) {
-      console.error('Error creating payment link:', error);
-      setError(error.message || 'Failed to create payment link. Please try again or contact support.');
+      console.error('Error processing payment:', error);
+      setError(error.message || 'Payment processing failed. Please try again or contact support.');
       setLoading(false);
     }
   };
@@ -198,65 +231,58 @@ export default function PaymentPage() {
                   <p className="text-sm" style={{ color: 'var(--muted)' }}>We'll use this to send your receipt and updates</p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  {/* Error Message */}
-                  {error && (
-                    <div className="p-4 rounded-lg flex items-start gap-3" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                      <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                      </svg>
-                      <p className="text-sm" style={{ color: '#ef4444' }}>{error}</p>
-                    </div>
-                  )}
+                {/* Error Message */}
+                {error && (
+                  <div className="mb-6 p-4 rounded-lg flex items-start gap-3" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                    <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                    <p className="text-sm" style={{ color: '#ef4444' }}>{error}</p>
+                  </div>
+                )}
 
+                <div className="space-y-6">
                   {/* Name Fields Row */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                    {/* First Name */}
                     <div>
                       <label htmlFor="firstName" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
                         First Name *
                       </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          id="firstName"
-                          name="firstName"
-                          value={formData.firstName}
-                          onChange={handleInputChange}
-                          required
-                          className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                          style={{
-                            borderColor: 'var(--line)',
-                            background: 'var(--bg)',
-                            color: 'var(--ink)',
-                          }}
-                          placeholder="John"
-                        />
-                      </div>
+                      <input
+                        type="text"
+                        id="firstName"
+                        name="firstName"
+                        value={formData.firstName}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                        style={{
+                          borderColor: 'var(--line)',
+                          background: 'var(--bg)',
+                          color: 'var(--ink)',
+                        }}
+                        placeholder="John"
+                      />
                     </div>
-
-                    {/* Last Name */}
                     <div>
                       <label htmlFor="lastName" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
                         Last Name *
                       </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          id="lastName"
-                          name="lastName"
-                          value={formData.lastName}
-                          onChange={handleInputChange}
-                          required
-                          className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                          style={{
-                            borderColor: 'var(--line)',
-                            background: 'var(--bg)',
-                            color: 'var(--ink)',
-                          }}
-                          placeholder="Doe"
-                        />
-                      </div>
+                      <input
+                        type="text"
+                        id="lastName"
+                        name="lastName"
+                        value={formData.lastName}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                        style={{
+                          borderColor: 'var(--line)',
+                          background: 'var(--bg)',
+                          color: 'var(--ink)',
+                        }}
+                        placeholder="Doe"
+                      />
                     </div>
                   </div>
 
@@ -265,23 +291,21 @@ export default function PaymentPage() {
                     <label htmlFor="email" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
                       Email Address *
                     </label>
-                    <div className="relative">
-                      <input
-                        type="email"
-                        id="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                        style={{
-                          borderColor: 'var(--line)',
-                          background: 'var(--bg)',
-                          color: 'var(--ink)',
-                        }}
-                        placeholder="john.doe@example.com"
-                      />
-                    </div>
+                    <input
+                      type="email"
+                      id="email"
+                      name="email"
+                      value={formData.email}
+                      onChange={handleInputChange}
+                      required
+                      className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      style={{
+                        borderColor: 'var(--line)',
+                        background: 'var(--bg)',
+                        color: 'var(--ink)',
+                      }}
+                      placeholder="john.doe@example.com"
+                    />
                   </div>
 
                   {/* Phone */}
@@ -289,12 +313,57 @@ export default function PaymentPage() {
                     <label htmlFor="phone" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
                       Phone Number *
                     </label>
-                    <div className="relative">
+                    <input
+                      type="tel"
+                      id="phone"
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      required
+                      className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      style={{
+                        borderColor: 'var(--line)',
+                        background: 'var(--bg)',
+                        color: 'var(--ink)',
+                      }}
+                      placeholder="+1 (555) 123-4567"
+                    />
+                  </div>
+
+                  {/* Company (Optional) */}
+                  <div>
+                    <label htmlFor="company" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                      Company Name <span className="text-xs font-normal" style={{ color: 'var(--muted)' }}>(Optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="company"
+                      name="company"
+                      value={formData.company}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                      style={{
+                        borderColor: 'var(--line)',
+                        background: 'var(--bg)',
+                        color: 'var(--ink)',
+                      }}
+                      placeholder="Acme Inc."
+                    />
+                  </div>
+
+                  {/* Billing Address */}
+                  <div className="pt-4 border-t" style={{ borderColor: 'var(--line)' }}>
+                    <h3 className="text-lg font-semibold mb-4" style={{ color: 'var(--ink)' }}>Billing Address</h3>
+                    
+                    <div className="mb-4">
+                      <label htmlFor="addressLine1" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                        Street Address *
+                      </label>
                       <input
-                        type="tel"
-                        id="phone"
-                        name="phone"
-                        value={formData.phone}
+                        type="text"
+                        id="addressLine1"
+                        name="addressLine1"
+                        value={formData.addressLine1}
                         onChange={handleInputChange}
                         required
                         className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
@@ -303,22 +372,19 @@ export default function PaymentPage() {
                           background: 'var(--bg)',
                           color: 'var(--ink)',
                         }}
-                        placeholder="+1 (555) 123-4567"
+                        placeholder="123 Main Street"
                       />
                     </div>
-                  </div>
 
-                  {/* Company (Optional) */}
-                  <div>
-                    <label htmlFor="company" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
-                      Company Name <span className="text-xs font-normal" style={{ color: 'var(--muted)' }}>(Optional)</span>
-                    </label>
-                    <div className="relative">
+                    <div className="mb-4">
+                      <label htmlFor="addressLine2" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                        Apartment, suite, etc. <span className="text-xs font-normal" style={{ color: 'var(--muted)' }}>(Optional)</span>
+                      </label>
                       <input
                         type="text"
-                        id="company"
-                        name="company"
-                        value={formData.company}
+                        id="addressLine2"
+                        name="addressLine2"
+                        value={formData.addressLine2}
                         onChange={handleInputChange}
                         className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                         style={{
@@ -326,29 +392,126 @@ export default function PaymentPage() {
                           background: 'var(--bg)',
                           color: 'var(--ink)',
                         }}
-                        placeholder="Acme Inc."
+                        placeholder="Apt 4B"
                       />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                      <div className="sm:col-span-2">
+                        <label htmlFor="city" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                          City *
+                        </label>
+                        <input
+                          type="text"
+                          id="city"
+                          name="city"
+                          value={formData.city}
+                          onChange={handleInputChange}
+                          required
+                          className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                          style={{
+                            borderColor: 'var(--line)',
+                            background: 'var(--bg)',
+                            color: 'var(--ink)',
+                          }}
+                          placeholder="New York"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="state" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                          State
+                        </label>
+                        <input
+                          type="text"
+                          id="state"
+                          name="state"
+                          value={formData.state}
+                          onChange={handleInputChange}
+                          className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                          style={{
+                            borderColor: 'var(--line)',
+                            background: 'var(--bg)',
+                            color: 'var(--ink)',
+                          }}
+                          placeholder="NY"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label htmlFor="postalCode" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                          Postal Code *
+                        </label>
+                        <input
+                          type="text"
+                          id="postalCode"
+                          name="postalCode"
+                          value={formData.postalCode}
+                          onChange={handleInputChange}
+                          required
+                          className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                          style={{
+                            borderColor: 'var(--line)',
+                            background: 'var(--bg)',
+                            color: 'var(--ink)',
+                          }}
+                          placeholder="10001"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="countryCode" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                          Country *
+                        </label>
+                        <select
+                          id="countryCode"
+                          name="countryCode"
+                          value={formData.countryCode}
+                          onChange={handleInputChange}
+                          required
+                          className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                          style={{
+                            borderColor: 'var(--line)',
+                            background: 'var(--bg)',
+                            color: 'var(--ink)',
+                          }}
+                        >
+                          <option value="US">United States</option>
+                          <option value="CA">Canada</option>
+                          <option value="GB">United Kingdom</option>
+                          <option value="AU">Australia</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Submit Button */}
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all bg-gradient-emerald text-black hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-                  >
-                    {loading ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Processing...
-                      </span>
-                    ) : (
-                      'Continue to Secure Payment'
-                    )}
-                  </button>
+                  {/* Payment Form */}
+                  <div className="pt-4 border-t" style={{ borderColor: 'var(--line)' }}>
+                    <h3 className="text-lg font-semibold mb-4" style={{ color: 'var(--ink)' }}>Payment Information</h3>
+                    <PaymentForm
+                      applicationId={SQUARE_APPLICATION_ID}
+                      locationId={SQUARE_LOCATION_ID}
+                      cardTokenizeResponseReceived={handlePaymentToken}
+                      createVerificationDetails={() => ({
+                        amount: plan.price.replace(/[$,]/g, ''),
+                        billingContact: {
+                          addressLines: [
+                            formData.addressLine1,
+                            formData.addressLine2,
+                          ].filter(Boolean),
+                          familyName: formData.lastName,
+                          givenName: formData.firstName,
+                          countryCode: formData.countryCode,
+                          city: formData.city,
+                          postalCode: formData.postalCode,
+                        },
+                        currencyCode: 'USD',
+                        intent: 'CHARGE',
+                      })}
+                    >
+                      <CreditCard />
+                    </PaymentForm>
+                  </div>
 
                   {/* Security Badges */}
                   <div className="pt-4 border-t" style={{ borderColor: 'var(--line)' }}>
@@ -371,7 +534,7 @@ export default function PaymentPage() {
                       </div>
                     </div>
                   </div>
-                </form>
+                </div>
               </div>
             </div>
 
@@ -417,57 +580,6 @@ export default function PaymentPage() {
                       </div>
                       <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>per month</p>
                     </div>
-                  </div>
-
-                  {/* Features List */}
-                  <div className="mt-6 pt-6 border-t" style={{ borderColor: 'var(--line)' }}>
-                    <h4 className="text-sm font-semibold mb-3" style={{ color: 'var(--ink)' }}>What's included:</h4>
-                    <ul className="space-y-2">
-                      {plan.planType === 'starter' && (
-                        <>
-                          <li className="flex items-start gap-2 text-sm">
-                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            <span style={{ color: 'var(--muted)' }}>Abby on your website (1 domain)</span>
-                          </li>
-                          <li className="flex items-start gap-2 text-sm">
-                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            <span style={{ color: 'var(--muted)' }}>24/7 lead engagement</span>
-                          </li>
-                          <li className="flex items-start gap-2 text-sm">
-                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            <span style={{ color: 'var(--muted)' }}>Calendar booking integration</span>
-                          </li>
-                        </>
-                      )}
-                      {plan.planType === 'growth' && (
-                        <>
-                          <li className="flex items-start gap-2 text-sm">
-                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            <span style={{ color: 'var(--muted)' }}>Everything in Starter</span>
-                          </li>
-                          <li className="flex items-start gap-2 text-sm">
-                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            <span style={{ color: 'var(--muted)' }}>Social & email channels</span>
-                          </li>
-                          <li className="flex items-start gap-2 text-sm">
-                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                            <span style={{ color: 'var(--muted)' }}>Weekly content pack</span>
-                          </li>
-                        </>
-                      )}
-                    </ul>
                   </div>
                 </div>
               </div>

@@ -89,5 +89,46 @@ export class PaymentController {
       payments,
     };
   }
+
+  @Post('process')
+  async processPayment(@Body() body: {
+    sourceId: string;
+    amount: number;
+    planType: string;
+    sessionId: string;
+    userEmail?: string;
+    userName?: string;
+    billingContact?: {
+      givenName?: string;
+      familyName?: string;
+      email?: string;
+      address?: {
+        addressLine1?: string;
+        addressLine2?: string;
+        city?: string;
+        countryCode?: string;
+        postalCode?: string;
+      };
+    };
+  }) {
+    try {
+      const result = await this.paymentService.processPayment(
+        body.sourceId,
+        body.amount,
+        body.planType,
+        body.sessionId,
+        body.userEmail,
+        body.userName,
+        body.billingContact
+      );
+      return result;
+    } catch (error: any) {
+      console.error('[PaymentController] Error processing payment:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to process payment',
+      };
+    }
+  }
 }
 

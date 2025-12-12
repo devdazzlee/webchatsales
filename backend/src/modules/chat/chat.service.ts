@@ -8,6 +8,7 @@ import { LeadService } from '../lead/lead.service';
 import { SupportService } from '../support/support.service';
 import { EmailService } from '../email/email.service';
 import { BookingService } from '../booking/booking.service';
+import { PromptBuilderService } from './prompt-builder.service';
 
 @Injectable()
 export class ChatService {
@@ -21,6 +22,7 @@ export class ChatService {
     private supportService: SupportService,
     private emailService: EmailService,
     private bookingService: BookingService,
+    private promptBuilder: PromptBuilderService,
   ) {
     // Get OpenAI API key from environment variables
     const openaiApiKey = 
@@ -222,8 +224,10 @@ export class ChatService {
     }
 
     try {
-      // Special handling for serviceNeed - be very lenient
+      // Special handling for serviceNeed, timing, and budget - be very lenient
       const isServiceNeedField = fieldType === 'serviceNeed';
+      const isBudgetField = fieldType === 'budget';
+      const isTimingField = fieldType === 'timing';
       
       const validationPrompt = `Analyze if this answer is valid for a ${fieldType} field in a lead qualification form.
 
@@ -253,7 +257,65 @@ Examples:
 - serviceNeed "consultation" → VALID
 - serviceNeed "yes" → INVALID (too vague)
 - serviceNeed "no" → INVALID (refusal or too vague)
-- serviceNeed "skip" → INVALID (refusal)` : `An answer is INVALID if it:
+- serviceNeed "skip" → INVALID (refusal)` : isBudgetField ? `CRITICAL: For budget field, be EXTREMELY LENIENT. Accept ANY answer that mentions a budget amount, price, or monetary value, in ANY format.
+
+VALID budget answers include (but not limited to):
+- "10 thousand", "10 thousand usd", "10k", "$10,000", "$10000", "10000 usd"
+- "5k", "5 thousand", "$5k", "5000 dollars"
+- "twenty thousand", "20k usd", "$20k", "20,000"
+- "a thousand", "one thousand", "1k", "$1,000"
+- "50k", "fifty thousand", "$50,000"
+- "between 10 and 20 thousand", "around 10k", "about 10000"
+- Any format with numbers and currency indicators (dollar, usd, $, k, thousand, etc.)
+- Typos are acceptable: "ten thousand", "10 thouusand", "10k us"
+- Written numbers: "ten thousand", "twenty five thousand"
+
+ONLY reject budget if answer is:
+- A clear refusal: "no budget", "skip", "I don't want to answer", "not that"
+- Completely vague: "yes", "no", "help", "information" (without any budget mention)
+- A question: "what?", "how much?", "why?"
+- Does not mention any amount, number, or currency
+
+Examples:
+- budget "10 thousand" → VALID
+- budget "10k" → VALID
+- budget "$10000" → VALID
+- budget "ten thousand usd" → VALID
+- budget "20 thousand dollars" → VALID
+- budget "around 5k" → VALID
+- budget "yes" → INVALID (too vague, no amount mentioned)
+- budget "no" → INVALID (refusal or too vague)
+- budget "skip" → INVALID (refusal)` : isTimingField ? `CRITICAL: For timing field, be EXTREMELY LENIENT. Accept ANY answer that mentions a time, date, timeframe, or when they want to start, in ANY format.
+
+VALID timing answers include (but not limited to):
+- "in 2 months", "in 2 moths" (typo OK - "moths" = "months"), "in 2 month", "2 months"
+- "next month", "next week", "next year", "next year"
+- "asap", "as soon as possible", "immediately", "right away", "soon"
+- "in 3 weeks", "in a month", "in 6 months", "in a year"
+- "january", "next january", "this january", "q1 2024", "q2"
+- "within 2 months", "within a month", "within 6 months"
+- "sometime next year", "early next year", "late this year"
+- "not sure yet", "flexible", "open", "whenever works" (acceptable timing responses)
+- Written numbers: "two months", "three weeks", "six months"
+- Typos are acceptable: "moths" = "months", "wek" = "week", "yer" = "year"
+- Partial phrases: "2 months", "next month", "asap"
+
+ONLY reject timing if answer is:
+- A clear refusal: "never", "don't want to", "skip", "I don't want to answer", "not interested"
+- Completely vague: "yes", "no" (without any time reference), "help", "information"
+- A question: "what?", "when?", "why?"
+- Does not mention any timeframe, time, or date reference
+
+Examples:
+- timing "in 2 months" → VALID
+- timing "in 2 moths" → VALID (typo - clearly means "months")
+- timing "2 months" → VALID
+- timing "asap" → VALID
+- timing "next year" → VALID
+- timing "flexible" → VALID (acceptable timing response)
+- timing "yes" → INVALID (too vague, no time mentioned)
+- timing "no" → INVALID (refusal or too vague)
+- timing "skip" → INVALID (refusal)` : `An answer is INVALID if it:
 - Is an attempt to skip or refuse (e.g., "skip", "I don't want to answer", "no", "not that")
 - Is too vague or generic (e.g., "yes", "no", "help", "information")
 - Is a greeting or question (e.g., "hi", "hello", "what?", "why?")
@@ -332,16 +394,21 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     
     if (hasSupportIssue) {
       console.log(`[ChatService] 🔴 Support issue detected for session ${sessionId} - creating ticket before response`);
-      newlyCreatedTicket = await this.handleSupportIssue(sessionId, conversation);
+      try {
+        newlyCreatedTicket = await this.handleSupportIssue(sessionId, conversation);
+      } catch (error) {
+        console.error(`[ChatService] ⚠️ Error creating support ticket:`, error);
+        // Continue with response generation even if ticket creation fails
+        // User experience should not be blocked by ticket creation errors
+      }
     }
     
     // Extract lead data from conversation (this updates the lead in database)
     await this.extractAndSaveLead(sessionId, conversation);
     
-    // Refetch lead to ensure we have latest data (database write should be complete)
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
     // Get lead state AFTER extraction to detect if a field was cleared (validation failure)
+    // Note: Using immediate refetch - MongoDB write is synchronous in this context
+    // If needed, implement retry logic for eventual consistency scenarios
     const leadAfterExtraction = await this.leadService.getLeadBySessionId(sessionId);
     
     // Detect validation failure: if a field had a value before but is now null/cleared, it failed validation
@@ -382,157 +449,29 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     const activeTicket = newlyCreatedTicket || await this.supportService.getTicketBySessionId(sessionId);
     const isSupportMode = activeTicket && activeTicket.status !== 'closed' && activeTicket.status !== 'resolved';
     const ticketJustCreated = newlyCreatedTicket !== null;
+    const isQualificationActive = nextQuestion !== null;
 
-    // Build system prompt based on qualification state and support mode
-    // IMPORTANT: Support mode and qualification can happen simultaneously!
-    let systemPrompt: string;
-    
-    // Build helpful validation error message if there was a recent failure (used in both modes)
-    let validationGuidance = '';
-    if (lastValidationFailure) {
-      const fieldName = lastValidationFailure.field === 'email' ? 'email address' :
-                       lastValidationFailure.field === 'phone' ? 'phone number' :
-                       lastValidationFailure.field === 'serviceNeed' ? 'service you need' :
-                       lastValidationFailure.field === 'timing' ? 'timing' :
-                       lastValidationFailure.field === 'budget' ? 'budget' :
-                       lastValidationFailure.field === 'name' ? 'name' : lastValidationFailure.field;
-      
-      validationGuidance = `\n\nIMPORTANT - Validation Feedback:\nThe user just provided an answer for ${fieldName}, but it wasn't valid.`;
-      
-      if (lastValidationFailure.field === 'email') {
-        validationGuidance += ` Please clearly explain: "I need a valid email address format (like example@email.com). Could you please provide your email address?"`;
-      } else if (lastValidationFailure.field === 'phone') {
-        validationGuidance += ` Please clearly explain: "I need a valid phone number with digits. Could you please provide your phone number?"`;
-      } else if (lastValidationFailure.field === 'serviceNeed') {
-        validationGuidance += ` Please clearly explain: "I need to know what service you're looking for. Could you please tell me what you need help with?"`;
-      } else if (lastValidationFailure.field === 'timing') {
-        validationGuidance += ` Please clearly explain: "I need to know when you want to start. Could you please tell me your timeline?"`;
-      } else if (lastValidationFailure.field === 'budget') {
-        validationGuidance += ` Please clearly explain: "I need to know your budget range. Could you please tell me your budget?"`;
-      } else {
-        validationGuidance += ` Please clearly explain what format is needed and ask again.`;
-      }
-      
-      if (nextQuestion) {
-        validationGuidance += ` Then ask: "${nextQuestion}"`;
-      }
+    // Get lead data if qualification is complete (for demo link)
+    let lead: any = null;
+    let schedulingLink: string | undefined;
+    if (!isQualificationActive) {
+      lead = await this.leadService.getLeadBySessionId(sessionId);
+      schedulingLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/book-demo?sessionId=${sessionId}`;
     }
-    
-    if (isSupportMode && nextQuestion) {
-      // SUPPORT MODE + QUALIFICATION ACTIVE (ticket created during qualification)
-      // Abby must BOTH acknowledge ticket AND continue asking qualification question
-      
-      systemPrompt = `You are Abby, a friendly AI assistant for WebChat Sales. ${ticketJustCreated ? 'A support ticket has just been created for this user because they reported a problem or issue. ' : 'A support ticket exists for this user. '}You are also currently in the middle of qualifying this lead.
 
-CRITICAL - DUAL TASK REQUIREMENT:
-You MUST do BOTH of these things in your response:
-
-1. ACKNOWLEDGE TICKET CREATION (if ticket just created):
-   ${ticketJustCreated ? `- Inform the user that their support ticket has been successfully submitted
-   - Tell them their Ticket ID: ${activeTicket.ticketId}
-   - Explain that the support team will contact them soon
-   - Acknowledge their problem and show empathy
-   - Be reassuring and helpful` : `- Acknowledge their problem and show empathy
-   - Reassure them that their ticket (${activeTicket.ticketId}) is being handled`}
-
-2. CONTINUE QUALIFICATION (MANDATORY):
-   - You MUST also ask this exact question: "${nextQuestion}"${validationGuidance}
-   - DO NOT skip qualification just because a ticket was created
-   - DO NOT stop asking questions - continue the qualification flow
-
-RESPONSE STRUCTURE:
-Your response should:
-1. First, acknowledge the ticket: ${ticketJustCreated ? `"I'm sorry to hear about the issue you're experiencing. I've successfully created a support ticket for you (Ticket ID: ${activeTicket.ticketId}). Our support team will review your request and contact you soon to help resolve this."` : `"I understand your concern. Your support ticket (${activeTicket.ticketId}) is being reviewed by our team."`}
-2. Then, immediately continue with qualification: "Also, I'd like to continue getting to know you better. ${nextQuestion}"
-
-Example full response format:
-"I'm sorry to hear about the issue you're experiencing. I've successfully created a support ticket for you (Ticket ID: ${activeTicket.ticketId}). Our support team will review your request and contact you soon to help resolve this. Also, I'd like to continue getting to know you better. ${nextQuestion}"
-
-MANDATORY RULES:
-1. You MUST acknowledge the ticket creation (with Ticket ID if just created)
-2. You MUST ask the qualification question: "${nextQuestion}"
-3. DO NOT skip the qualification question for ANY reason
-4. Both tasks must be completed in the SAME response
-5. Be empathetic about the issue while continuing the qualification flow
-${lastValidationFailure ? '6. If the user just provided an invalid answer, clearly explain what format is needed before asking again.' : ''}
-
-Remember: Support ticket creation does NOT pause qualification - continue asking questions!`;
-    } else if (isSupportMode) {
-      // Support mode ONLY (no qualification active)
-      systemPrompt = `You are Abby, a friendly and empathetic AI assistant for WebChat Sales. ${ticketJustCreated ? 'A support ticket has just been created for this user because they reported a problem or issue.' : 'A support ticket exists for this user.'}
-
-${ticketJustCreated ? `CRITICAL - Ticket Just Created:
-- You MUST inform the user that their support ticket has been successfully submitted
-- Tell them their Ticket ID: ${activeTicket.ticketId}
-- Explain that the support team will contact them soon
-- Acknowledge their problem and show empathy
-- Be reassuring and helpful
-
-Example response format: "I'm sorry to hear about the issue you're experiencing. I've successfully created a support ticket for you (Ticket ID: ${activeTicket.ticketId}). Our support team will review your request and contact you soon to help resolve this. In the meantime, [offer any helpful guidance if possible]."
-
-Remember: You MUST mention the ticket creation and Ticket ID in your response!` : `IMPORTANT - Support Mode Active:
-- Be empathetic, understanding, and solution-focused
-- Acknowledge their problem and show that you care
-- Provide helpful guidance and support
-- If you can't resolve it directly, reassure them that the support team will help
-- Be patient and professional
-- Continue to be helpful while the ticket is being processed`}
-
-You can:
-- Answer questions about WebChat Sales services
-- Help with general inquiries
-- Provide guidance and support
-- But prioritize being supportive and empathetic given their issue
-
-Remember: The user has a support ticket (${activeTicket.ticketId}), so be extra attentive and helpful.`;
-    } else if (nextQuestion) {
-      // Still qualifying - be ABSOLUTELY strict and ask the specific question
-      systemPrompt = `You are Abby, a friendly AI sales assistant for WebChat Sales. You are currently qualifying a lead.
-
-CRITICAL - ABSOLUTE REQUIREMENT - NO EXCEPTIONS:
-You MUST ask this exact question: "${nextQuestion}"${validationGuidance}
-
-MANDATORY RULES - FOLLOW EXACTLY:
-1. Your response MUST ask: "${nextQuestion}"
-2. DO NOT skip this question for ANY reason
-3. DO NOT move to the next question until this one is answered
-4. If user says "skip", "I don't want to answer", "skip this question", or any refusal:
-   → Respond: "I understand, but I need this information to help you. ${nextQuestion}"
-5. If user gives vague answers like "yes", "no", "help", "information":
-   → Respond: "I appreciate that, but I need a more specific answer. ${nextQuestion}"
-6. DO NOT provide information about services until all 6 questions are answered (Name, Email, Phone, Service Need, Timing, Budget)
-7. DO NOT answer other questions until qualification is complete
-8. Stay persistent and friendly - you MUST get an answer to "${nextQuestion}"
-${lastValidationFailure ? '9. If the user just provided an invalid answer, clearly explain what format is needed before asking again.' : ''}
-
-Remember: You CANNOT skip this question. You MUST get a proper answer before moving forward.`;
-    } else {
-      // Qualification complete - offer demo booking
-      const lead = await this.leadService.getLeadBySessionId(sessionId);
-      const schedulingLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/book-demo?sessionId=${sessionId}`;
-      
-      systemPrompt = `You are Abby, a friendly AI sales assistant for WebChat Sales. The lead qualification is complete! 
-
-IMPORTANT - Offer Demo Booking:
-You MUST offer to book a demo now that qualification is complete. Use this exact link: ${schedulingLink}
-
-Your response should:
-1. Congratulate them on completing qualification: "Great! I have all the information I need. Would you like to schedule a demo to see how WebChat Sales can help your business?"
-2. Offer the demo scheduling using a markdown link: "You can book a demo here: [Book a Demo](${schedulingLink})"
-   IMPORTANT: Use markdown link format [Book a Demo](URL) so the link appears as a clickable button
-3. Explain benefits: "During the demo, we'll show you how WebChat Sales can help with ${lead?.serviceNeed || 'your needs'} based on your timeline of ${lead?.timing || 'getting started'} and budget of ${lead?.budget || 'your budget'}."
-4. Be enthusiastic and helpful
-
-CRITICAL: Always format the booking link as a markdown link: [Book a Demo](${schedulingLink}) - never just paste the raw URL
-
-You can also:
-- Answer questions about WebChat Sales services
-- Explain pricing: Founder Special: $279 for first month, regular $479/mo
-- Discuss benefits and features
-- Help with booking demos or confirming times
-
-Be friendly, informative, and focus on converting this qualified lead into a booking.`;
-    }
+    // Build system prompt using PromptBuilderService (clean separation of concerns)
+    const systemPrompt = this.promptBuilder.buildSystemPrompt({
+      isSupportMode,
+      isQualificationActive,
+      ticketJustCreated,
+      activeTicketId: activeTicket?.ticketId,
+      nextQuestion,
+      lastValidationFailure,
+      leadServiceNeed: lead?.serviceNeed,
+      leadTiming: lead?.timing,
+      leadBudget: lead?.budget,
+      schedulingLink,
+    });
 
     // Convert conversation messages to OpenAI format
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];

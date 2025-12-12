@@ -307,4 +307,138 @@ export class PaymentService {
       .limit(limit)
       .exec();
   }
+
+  /**
+   * Process payment using Square Payments API with tokenized card
+   */
+  async processPayment(
+    sourceId: string,
+    amount: number,
+    planType: string,
+    sessionId: string,
+    userEmail?: string,
+    userName?: string,
+    billingContact?: {
+      givenName?: string;
+      familyName?: string;
+      email?: string;
+      address?: {
+        addressLine1?: string;
+        addressLine2?: string;
+        city?: string;
+        countryCode?: string;
+        postalCode?: string;
+      };
+    }
+  ) {
+    // Validate amount
+    if (!amount || amount <= 0) {
+      throw new Error('Invalid amount: amount must be greater than 0');
+    }
+
+    // Get location ID (required by Square API)
+    const locationId = await this.getLocationId();
+    
+    // Generate unique idempotency key
+    const idempotencyKey = `payment_${sessionId}_${Date.now()}`;
+    
+    // Convert amount to cents (Square requires amount in smallest currency unit)
+    const amountInCents = BigInt(Math.round(amount * 100));
+
+    try {
+      // Build payment request
+      const paymentRequest: any = {
+        idempotencyKey,
+        sourceId, // Token from Square Web Payments SDK
+        amountMoney: {
+          amount: amountInCents,
+          currency: 'USD',
+        },
+        locationId,
+        note: `WebChat Sales - ${planType} Plan`,
+      };
+
+      // Add buyer information if available
+      if (billingContact) {
+        paymentRequest.buyerEmailAddress = billingContact.email || userEmail;
+        if (billingContact.givenName || billingContact.familyName) {
+          paymentRequest.billingAddress = billingContact.address;
+        }
+      } else if (userEmail) {
+        paymentRequest.buyerEmailAddress = userEmail;
+      }
+
+      // Process payment using Square Payments API
+      const response = await this.client.payments.createPayment(paymentRequest);
+
+      if (!response.result || !response.result.payment) {
+        throw new Error('No payment in Square response');
+      }
+
+      const payment = response.result.payment;
+      
+      // Determine payment status
+      let status = 'pending';
+      if (payment.status === 'COMPLETED') {
+        status = 'completed';
+      } else if (payment.status === 'FAILED' || payment.status === 'CANCELED') {
+        status = 'failed';
+      }
+
+      // Store payment record in database
+      const paymentRecord = new this.paymentModel({
+        squarePaymentId: payment.id || `pending_${Date.now()}`,
+        squareOrderId: payment.orderId || '',
+        sessionId,
+        userEmail: userEmail || billingContact?.email,
+        userName,
+        amount,
+        currency: 'USD',
+        planType,
+        status,
+        confirmationEmailSent: false,
+        paidAt: status === 'completed' ? new Date() : undefined,
+      });
+      await paymentRecord.save();
+
+      // Send confirmation email if payment is completed
+      if (status === 'completed' && (userEmail || billingContact?.email)) {
+        try {
+          await this.emailService.sendPaymentConfirmation(
+            userEmail || billingContact?.email || '',
+            userName || `${billingContact?.givenName || ''} ${billingContact?.familyName || ''}`.trim() || 'Customer',
+            amount,
+            planType
+          );
+          paymentRecord.confirmationEmailSent = true;
+          await paymentRecord.save();
+        } catch (emailError) {
+          console.error('[PaymentService] Error sending confirmation email:', emailError);
+        }
+      }
+
+      console.log(`[PaymentService] ✅ Payment processed: ${payment.id} - Status: ${status}`);
+
+      return {
+        success: true,
+        paymentId: paymentRecord._id.toString(),
+        squarePaymentId: payment.id,
+        status,
+        payment: paymentRecord,
+      };
+    } catch (error: any) {
+      console.error('[PaymentService] Error processing payment:', error);
+      
+      // Extract meaningful error message
+      let errorMessage = 'Failed to process payment';
+      
+      if (error.errors && Array.isArray(error.errors) && error.errors.length > 0) {
+        errorMessage = error.errors[0].detail || error.errors[0].message || errorMessage;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      throw new Error(errorMessage);
+    }
+  }
 }
