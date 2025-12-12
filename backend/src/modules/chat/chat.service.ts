@@ -1399,7 +1399,7 @@ Return JSON: {"name": null or "value", "email": null or "value", "phone": null o
         .join('') || '';
 
       // Send email notification to admin
-      const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
+      const adminEmail = 'matthew@webchatsales.com';
       if (adminEmail) {
         try {
           await this.emailService.sendEmail(

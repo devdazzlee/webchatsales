@@ -130,11 +130,8 @@ export class EmailService {
       </html>
     `;
 
-    // Send to the admin email (SMTP_EMAIL)
-    const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
-    if (!adminEmail) {
-      throw new Error('ADMIN_EMAIL or SMTP_EMAIL environment variable is required');
-    }
+    // Send to the admin email
+    const adminEmail = 'matthew@webchatsales.com';
     return this.sendEmail(
       adminEmail,
       `New Beta Signup: ${userName}`,
@@ -206,10 +203,7 @@ export class EmailService {
       </html>
     `;
 
-    const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
-    if (!adminEmail) {
-      throw new Error('ADMIN_EMAIL or SMTP_EMAIL environment variable is required');
-    }
+    const adminEmail = 'matthew@webchatsales.com';
     
     return this.sendEmail(
       adminEmail,
@@ -453,10 +447,7 @@ export class EmailService {
       </html>
     `;
 
-    const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
-    if (!adminEmail) {
-      throw new Error('ADMIN_EMAIL or SMTP_EMAIL environment variable is required');
-    }
+    const adminEmail = 'matthew@webchatsales.com';
     
     console.log(`[EmailService] 📧 Sending demo booking notification to admin: ${adminEmail}`);
     return this.sendEmail(
@@ -598,10 +589,7 @@ export class EmailService {
       </html>
     `;
 
-    const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_EMAIL;
-    if (!adminEmail) {
-      throw new Error('ADMIN_EMAIL or SMTP_EMAIL environment variable is required');
-    }
+    const adminEmail = 'matthew@webchatsales.com';
     
     console.log(`[EmailService] 📧 Sending ticket creation notification to admin: ${adminEmail}`);
     return this.sendEmail(

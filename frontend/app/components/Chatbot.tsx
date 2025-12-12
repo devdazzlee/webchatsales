@@ -673,9 +673,17 @@ export default function Chatbot() {
                               />
                             ),
                             // Style text/span elements to ensure proper color
-                            text: ({ ...props }) => (
-                              <span style={{ color: message.sender === 'user' ? 'black' : 'inherit' }} {...props} />
-                            ),
+                            text: (props: any) => {
+                              // Filter out SVG-specific props that aren't compatible with HTML span
+                              const { ref, node, ...htmlProps } = props;
+                              // Only spread HTML-compatible props
+                              return (
+                                <span 
+                                  style={{ color: message.sender === 'user' ? 'black' : 'inherit' }}
+                                  {...(htmlProps as React.HTMLAttributes<HTMLSpanElement>)} 
+                                />
+                              );
+                            },
                           }}
                         >
                           {message.text}

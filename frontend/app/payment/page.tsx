@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { PaymentForm, CreditCard } from 'react-square-web-payments-sdk';
 import Header from '../components/Header';
@@ -10,7 +10,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 const SQUARE_APPLICATION_ID = process.env.NEXT_PUBLIC_SQUARE_APPLICATION_ID || 'sandbox-sq0idb-EzWSCphEv3i3RqREob8OpQ';
 const SQUARE_LOCATION_ID = process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID || 'LWHJ1BYBBQMF0';
 
-export default function PaymentPage() {
+function PaymentContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
@@ -589,5 +589,27 @@ export default function PaymentPage() {
       </div>
       <Footer />
     </>
+  );
+}
+
+export default function PaymentPage() {
+  return (
+    <Suspense fallback={
+      <>
+        <Header />
+        <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+          <div className="max-w-md w-full">
+            <div className="border rounded-lg p-8 text-center" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4" style={{ borderColor: 'var(--emerald)' }}></div>
+              <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--ink)' }}>Loading...</h2>
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>Please wait while we load the payment page.</p>
+            </div>
+          </div>
+        </div>
+        <Footer />
+      </>
+    }>
+      <PaymentContent />
+    </Suspense>
   );
 }

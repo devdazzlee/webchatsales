@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 
-export default function BookDemoPage() {
+function BookDemoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('sessionId');
@@ -556,6 +556,29 @@ export default function BookDemoPage() {
       </div>
       <Footer />
     </>
+  );
+}
+
+export default function BookDemoPage() {
+  return (
+    <Suspense fallback={
+      <>
+        <Header />
+        <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+          <div className="max-w-md w-full">
+            <div className="border rounded-lg p-8 text-center" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+              <h2 className="text-2xl font-bold mb-4" style={{ color: 'var(--ink)' }}>Loading...</h2>
+              <p className="mb-6" style={{ color: 'var(--muted)' }}>
+                Please wait while we load the booking page.
+              </p>
+            </div>
+          </div>
+        </div>
+        <Footer />
+      </>
+    }>
+      <BookDemoContent />
+    </Suspense>
   );
 }
 
