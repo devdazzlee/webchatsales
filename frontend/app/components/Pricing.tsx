@@ -1,24 +1,12 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useChatbot } from './ChatbotContext';
 
 export default function Pricing() {
   const router = useRouter();
-  const { openChatbot } = useChatbot();
   
   const handlePricingButton = (plan: { name: string; tier: string; price: string; planType: string }) => {
-    // For Enterprise, open chat instead
-    if (plan.tier === 'Enterprise') {
-      openChatbot();
-      setTimeout(() => {
-        const event = new CustomEvent('quick-question', { detail: `Tell me more about ${plan.name}` });
-        window.dispatchEvent(event);
-      }, 500);
-      return;
-    }
-
-    // Navigate to payment page with plan info
+    // Navigate to payment page with plan info for all plans
     const params = new URLSearchParams({
       plan: plan.name,
       tier: plan.tier,

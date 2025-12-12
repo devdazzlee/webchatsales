@@ -136,6 +136,7 @@ export default function PaymentPage() {
         <Header />
         <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
           <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mx-auto mb-4"></div>
             <p style={{ color: 'var(--muted)' }}>Loading...</p>
           </div>
         </div>
@@ -148,193 +149,329 @@ export default function PaymentPage() {
     <>
       <Header />
       <div className="min-h-screen pt-16 pb-20" style={{ background: 'var(--bg)' }}>
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          {/* Header */}
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Progress Indicator */}
           <div className="mb-8">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gradient-emerald text-black text-sm font-bold">1</div>
+                <span className="text-sm font-medium" style={{ color: 'var(--ink)' }}>Customer Info</span>
+              </div>
+              <div className="w-12 h-0.5" style={{ background: 'var(--line)' }}></div>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center border-2 text-sm font-medium" style={{ borderColor: 'var(--line)', color: 'var(--muted)' }}>2</div>
+                <span className="text-sm font-medium" style={{ color: 'var(--muted)' }}>Payment</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Header */}
+          <div className="mb-8 text-center">
             <button
               onClick={() => router.push('/')}
-              className="mb-4 text-sm hover:opacity-70 transition-opacity flex items-center gap-2"
+              className="mb-6 text-sm hover:opacity-70 transition-opacity inline-flex items-center gap-2"
               style={{ color: 'var(--muted)' }}
             >
-              ← Back to Pricing
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Back to Pricing
             </button>
-            <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--ink)' }}>Complete Your Purchase</h1>
+            <h1 className="text-4xl font-bold mb-3" style={{ color: 'var(--ink)' }}>Complete Your Purchase</h1>
             <p className="text-lg" style={{ color: 'var(--muted)' }}>
-              {plan.name} - {plan.price}/month
+              Secure checkout powered by Square
             </p>
           </div>
 
-          {/* Form Card */}
-          <div 
-            className="rounded-lg shadow-lg p-6 sm:p-8"
-            style={{ 
-              background: 'var(--panel)', 
-              border: '1px solid var(--line)',
-            }}
-          >
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Error Message */}
-              {error && (
-                <div className="p-4 rounded" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                  <p className="text-sm" style={{ color: '#ef4444' }}>{error}</p>
-                </div>
-              )}
-
-              {/* Name Fields Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* First Name */}
-                <div>
-                  <label htmlFor="firstName" className="block text-sm font-medium mb-2" style={{ color: 'var(--ink)' }}>
-                    First Name *
-                  </label>
-                  <input
-                    type="text"
-                    id="firstName"
-                    name="firstName"
-                    value={formData.firstName}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full px-4 py-2.5 rounded border transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    style={{
-                      borderColor: 'var(--line)',
-                      background: 'var(--bg)',
-                      color: 'var(--ink)',
-                    }}
-                    placeholder="John"
-                  />
+          <div className="grid lg:grid-cols-3 gap-8">
+            {/* Left Column - Form */}
+            <div className="lg:col-span-2">
+              <div 
+                className="rounded-xl shadow-lg p-6 sm:p-8"
+                style={{ 
+                  background: 'var(--panel)', 
+                  border: '1px solid var(--line)',
+                }}
+              >
+                <div className="mb-6 pb-6 border-b" style={{ borderColor: 'var(--line)' }}>
+                  <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--ink)' }}>Contact Information</h2>
+                  <p className="text-sm" style={{ color: 'var(--muted)' }}>We'll use this to send your receipt and updates</p>
                 </div>
 
-                {/* Last Name */}
-                <div>
-                  <label htmlFor="lastName" className="block text-sm font-medium mb-2" style={{ color: 'var(--ink)' }}>
-                    Last Name *
-                  </label>
-                  <input
-                    type="text"
-                    id="lastName"
-                    name="lastName"
-                    value={formData.lastName}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full px-4 py-2.5 rounded border transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    style={{
-                      borderColor: 'var(--line)',
-                      background: 'var(--bg)',
-                      color: 'var(--ink)',
-                    }}
-                    placeholder="Doe"
-                  />
-                </div>
-              </div>
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  {/* Error Message */}
+                  {error && (
+                    <div className="p-4 rounded-lg flex items-start gap-3" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                      <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#ef4444' }} fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                      <p className="text-sm" style={{ color: '#ef4444' }}>{error}</p>
+                    </div>
+                  )}
 
-              {/* Email */}
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium mb-2" style={{ color: 'var(--ink)' }}>
-                  Email Address *
-                </label>
-                <input
-                  type="email"
-                  id="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full px-4 py-2.5 rounded border transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  style={{
-                    borderColor: 'var(--line)',
-                    background: 'var(--bg)',
-                    color: 'var(--ink)',
-                  }}
-                  placeholder="john.doe@example.com"
-                />
-              </div>
+                  {/* Name Fields Row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    {/* First Name */}
+                    <div>
+                      <label htmlFor="firstName" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                        First Name *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          id="firstName"
+                          name="firstName"
+                          value={formData.firstName}
+                          onChange={handleInputChange}
+                          required
+                          className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                          style={{
+                            borderColor: 'var(--line)',
+                            background: 'var(--bg)',
+                            color: 'var(--ink)',
+                          }}
+                          placeholder="John"
+                        />
+                      </div>
+                    </div>
 
-              {/* Phone */}
-              <div>
-                <label htmlFor="phone" className="block text-sm font-medium mb-2" style={{ color: 'var(--ink)' }}>
-                  Phone Number *
-                </label>
-                <input
-                  type="tel"
-                  id="phone"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full px-4 py-2.5 rounded border transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  style={{
-                    borderColor: 'var(--line)',
-                    background: 'var(--bg)',
-                    color: 'var(--ink)',
-                  }}
-                  placeholder="+1 (555) 123-4567"
-                />
-              </div>
-
-              {/* Company (Optional) */}
-              <div>
-                <label htmlFor="company" className="block text-sm font-medium mb-2" style={{ color: 'var(--ink)' }}>
-                  Company Name <span className="text-xs font-normal" style={{ color: 'var(--muted)' }}>(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  id="company"
-                  name="company"
-                  value={formData.company}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2.5 rounded border transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  style={{
-                    borderColor: 'var(--line)',
-                    background: 'var(--bg)',
-                    color: 'var(--ink)',
-                  }}
-                  placeholder="Acme Inc."
-                />
-              </div>
-
-              {/* Plan Summary */}
-              <div className="p-5 rounded border" style={{ borderColor: 'var(--line)', background: 'rgba(0, 255, 153, 0.05)' }}>
-                <h3 className="font-semibold mb-3" style={{ color: 'var(--ink)' }}>Order Summary</h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span style={{ color: 'var(--muted)' }}>Plan:</span>
-                    <span style={{ color: 'var(--ink)' }}>{plan.name}</span>
+                    {/* Last Name */}
+                    <div>
+                      <label htmlFor="lastName" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                        Last Name *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          id="lastName"
+                          name="lastName"
+                          value={formData.lastName}
+                          onChange={handleInputChange}
+                          required
+                          className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                          style={{
+                            borderColor: 'var(--line)',
+                            background: 'var(--bg)',
+                            color: 'var(--ink)',
+                          }}
+                          placeholder="Doe"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center pt-2 border-t" style={{ borderColor: 'var(--line)' }}>
-                    <span className="font-semibold" style={{ color: 'var(--ink)' }}>Total:</span>
-                    <span className="text-2xl font-bold" style={{ color: 'var(--emerald)' }}>{plan.price}/month</span>
+
+                  {/* Email */}
+                  <div>
+                    <label htmlFor="email" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                      Email Address *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                        style={{
+                          borderColor: 'var(--line)',
+                          background: 'var(--bg)',
+                          color: 'var(--ink)',
+                        }}
+                        placeholder="john.doe@example.com"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Phone */}
+                  <div>
+                    <label htmlFor="phone" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                      Phone Number *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="tel"
+                        id="phone"
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handleInputChange}
+                        required
+                        className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                        style={{
+                          borderColor: 'var(--line)',
+                          background: 'var(--bg)',
+                          color: 'var(--ink)',
+                        }}
+                        placeholder="+1 (555) 123-4567"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Company (Optional) */}
+                  <div>
+                    <label htmlFor="company" className="block text-sm font-semibold mb-2" style={{ color: 'var(--ink)' }}>
+                      Company Name <span className="text-xs font-normal" style={{ color: 'var(--muted)' }}>(Optional)</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        id="company"
+                        name="company"
+                        value={formData.company}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-3 rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                        style={{
+                          borderColor: 'var(--line)',
+                          background: 'var(--bg)',
+                          color: 'var(--ink)',
+                        }}
+                        placeholder="Acme Inc."
+                      />
+                    </div>
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-4 px-6 rounded-lg font-semibold text-lg transition-all bg-gradient-emerald text-black hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                  >
+                    {loading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Processing...
+                      </span>
+                    ) : (
+                      'Continue to Secure Payment'
+                    )}
+                  </button>
+
+                  {/* Security Badges */}
+                  <div className="pt-4 border-t" style={{ borderColor: 'var(--line)' }}>
+                    <div className="flex flex-wrap items-center justify-center gap-4 text-xs" style={{ color: 'var(--muted)' }}>
+                      <div className="flex items-center gap-1.5">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                        </svg>
+                        <span>SSL Encrypted</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                        <span>Secure Payment</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span>🔒</span>
+                        <span>Powered by Square</span>
+                      </div>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            {/* Right Column - Order Summary */}
+            <div className="lg:col-span-1">
+              <div className="sticky top-24">
+                <div 
+                  className="rounded-xl shadow-lg p-6 border"
+                  style={{ 
+                    background: 'var(--panel)', 
+                    borderColor: 'var(--line)',
+                  }}
+                >
+                  <h3 className="text-xl font-bold mb-6 pb-4 border-b" style={{ color: 'var(--ink)', borderColor: 'var(--line)' }}>
+                    Order Summary
+                  </h3>
+                  
+                  <div className="space-y-4 mb-6">
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 rounded-lg flex items-center justify-center bg-gradient-emerald text-black font-bold text-lg">
+                        A
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold mb-1" style={{ color: 'var(--ink)' }}>{plan.name}</h4>
+                        <p className="text-sm" style={{ color: 'var(--muted)' }}>{plan.tier} Plan</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 pt-4 border-t" style={{ borderColor: 'var(--line)' }}>
+                    <div className="flex justify-between text-sm">
+                      <span style={{ color: 'var(--muted)' }}>Subtotal</span>
+                      <span style={{ color: 'var(--ink)' }}>{plan.price}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span style={{ color: 'var(--muted)' }}>Billing Cycle</span>
+                      <span style={{ color: 'var(--ink)' }}>Monthly</span>
+                    </div>
+                    <div className="pt-3 border-t" style={{ borderColor: 'var(--line)' }}>
+                      <div className="flex justify-between items-center">
+                        <span className="text-lg font-semibold" style={{ color: 'var(--ink)' }}>Total</span>
+                        <span className="text-2xl font-bold" style={{ color: 'var(--emerald)' }}>{plan.price}</span>
+                      </div>
+                      <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>per month</p>
+                    </div>
+                  </div>
+
+                  {/* Features List */}
+                  <div className="mt-6 pt-6 border-t" style={{ borderColor: 'var(--line)' }}>
+                    <h4 className="text-sm font-semibold mb-3" style={{ color: 'var(--ink)' }}>What's included:</h4>
+                    <ul className="space-y-2">
+                      {plan.planType === 'starter' && (
+                        <>
+                          <li className="flex items-start gap-2 text-sm">
+                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                            <span style={{ color: 'var(--muted)' }}>Abby on your website (1 domain)</span>
+                          </li>
+                          <li className="flex items-start gap-2 text-sm">
+                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                            <span style={{ color: 'var(--muted)' }}>24/7 lead engagement</span>
+                          </li>
+                          <li className="flex items-start gap-2 text-sm">
+                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                            <span style={{ color: 'var(--muted)' }}>Calendar booking integration</span>
+                          </li>
+                        </>
+                      )}
+                      {plan.planType === 'growth' && (
+                        <>
+                          <li className="flex items-start gap-2 text-sm">
+                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                            <span style={{ color: 'var(--muted)' }}>Everything in Starter</span>
+                          </li>
+                          <li className="flex items-start gap-2 text-sm">
+                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                            <span style={{ color: 'var(--muted)' }}>Social & email channels</span>
+                          </li>
+                          <li className="flex items-start gap-2 text-sm">
+                            <svg className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--emerald)' }} fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                            </svg>
+                            <span style={{ color: 'var(--muted)' }}>Weekly content pack</span>
+                          </li>
+                        </>
+                      )}
+                    </ul>
                   </div>
                 </div>
               </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-4 pt-4">
-                <button
-                  type="button"
-                  onClick={() => router.push('/')}
-                  className="flex-1 px-6 py-3 rounded font-medium transition-colors"
-                  style={{
-                    border: '1px solid var(--line)',
-                    color: 'var(--muted)',
-                  }}
-                  disabled={loading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1 px-6 py-3 rounded font-medium transition-colors bg-gradient-emerald text-black hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? 'Processing...' : 'Continue to Payment'}
-                </button>
-              </div>
-
-              {/* Security Note */}
-              <p className="text-xs text-center pt-4" style={{ color: 'var(--muted)' }}>
-                🔒 Secure payment powered by Square
-              </p>
-            </form>
+            </div>
           </div>
         </div>
       </div>
@@ -342,4 +479,3 @@ export default function PaymentPage() {
     </>
   );
 }
-

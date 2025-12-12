@@ -245,6 +245,7 @@ export default function Chatbot() {
               }
               if (data.done) {
                 setIsStreaming(false);
+                setIsLoading(false);
               }
             } catch {
               // Skip malformed JSON
@@ -253,7 +254,9 @@ export default function Chatbot() {
         }
       }
 
+      // Ensure both states are cleared when stream completes
       setIsStreaming(false);
+      setIsLoading(false);
     } catch (error: unknown) {
       if (error instanceof Error && error.name === 'AbortError') {
         console.log('Request aborted');
@@ -272,8 +275,11 @@ export default function Chatbot() {
         ]);
       }
       setIsStreaming(false);
-    } finally {
       setIsLoading(false);
+    } finally {
+      // Fallback: ensure states are cleared even if something goes wrong
+      setIsLoading(false);
+      setIsStreaming(false);
       abortControllerRef.current = null;
     }
   };
@@ -395,11 +401,18 @@ export default function Chatbot() {
                   });
                 }
               }
-              if (data.done) setIsStreaming(false);
+              if (data.done) {
+                setIsStreaming(false);
+                setIsLoading(false);
+              }
             } catch {}
           }
         }
       }
+      
+      // Ensure both states are cleared when stream completes
+      setIsStreaming(false);
+      setIsLoading(false);
     } catch (error) {
       console.error('Error:', error);
       // Add error message if no assistant message was created yet
@@ -413,7 +426,10 @@ export default function Chatbot() {
           timestamp: new Date(),
         },
       ]);
+      setIsStreaming(false);
+      setIsLoading(false);
     } finally {
+      // Fallback: ensure states are cleared even if something goes wrong
       setIsLoading(false);
       setIsStreaming(false);
     }

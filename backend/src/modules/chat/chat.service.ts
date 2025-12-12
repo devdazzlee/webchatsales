@@ -325,7 +325,17 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     // Get lead state BEFORE extraction to detect validation failures
     const leadBeforeExtraction = await this.leadService.getLeadBySessionId(sessionId);
     
-    // Extract lead data from conversation FIRST (this updates the lead in database)
+    // AI-powered support issue detection - check if user is expressing a problem/issue/complaint
+    // MUST happen BEFORE generating response so Abby can acknowledge ticket creation
+    const hasSupportIssue = await this.detectSupportIssue(userMessage, conversation);
+    let newlyCreatedTicket: any = null;
+    
+    if (hasSupportIssue) {
+      console.log(`[ChatService] 🔴 Support issue detected for session ${sessionId} - creating ticket before response`);
+      newlyCreatedTicket = await this.handleSupportIssue(sessionId, conversation);
+    }
+    
+    // Extract lead data from conversation (this updates the lead in database)
     await this.extractAndSaveLead(sessionId, conversation);
     
     // Refetch lead to ensure we have latest data (database write should be complete)
@@ -369,60 +379,113 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     }
     
     // Check if there's an active support ticket for this session (support mode)
-    const activeTicket = await this.supportService.getTicketBySessionId(sessionId);
+    const activeTicket = newlyCreatedTicket || await this.supportService.getTicketBySessionId(sessionId);
     const isSupportMode = activeTicket && activeTicket.status !== 'closed' && activeTicket.status !== 'resolved';
+    const ticketJustCreated = newlyCreatedTicket !== null;
 
     // Build system prompt based on qualification state and support mode
+    // IMPORTANT: Support mode and qualification can happen simultaneously!
     let systemPrompt: string;
     
-    if (isSupportMode) {
-      // Support mode - Abby should be empathetic and helpful
-      systemPrompt = `You are Abby, a friendly and empathetic AI assistant for WebChat Sales. A support ticket has been created for this user because they reported a problem or issue.
+    // Build helpful validation error message if there was a recent failure (used in both modes)
+    let validationGuidance = '';
+    if (lastValidationFailure) {
+      const fieldName = lastValidationFailure.field === 'email' ? 'email address' :
+                       lastValidationFailure.field === 'phone' ? 'phone number' :
+                       lastValidationFailure.field === 'serviceNeed' ? 'service you need' :
+                       lastValidationFailure.field === 'timing' ? 'timing' :
+                       lastValidationFailure.field === 'budget' ? 'budget' :
+                       lastValidationFailure.field === 'name' ? 'name' : lastValidationFailure.field;
+      
+      validationGuidance = `\n\nIMPORTANT - Validation Feedback:\nThe user just provided an answer for ${fieldName}, but it wasn't valid.`;
+      
+      if (lastValidationFailure.field === 'email') {
+        validationGuidance += ` Please clearly explain: "I need a valid email address format (like example@email.com). Could you please provide your email address?"`;
+      } else if (lastValidationFailure.field === 'phone') {
+        validationGuidance += ` Please clearly explain: "I need a valid phone number with digits. Could you please provide your phone number?"`;
+      } else if (lastValidationFailure.field === 'serviceNeed') {
+        validationGuidance += ` Please clearly explain: "I need to know what service you're looking for. Could you please tell me what you need help with?"`;
+      } else if (lastValidationFailure.field === 'timing') {
+        validationGuidance += ` Please clearly explain: "I need to know when you want to start. Could you please tell me your timeline?"`;
+      } else if (lastValidationFailure.field === 'budget') {
+        validationGuidance += ` Please clearly explain: "I need to know your budget range. Could you please tell me your budget?"`;
+      } else {
+        validationGuidance += ` Please clearly explain what format is needed and ask again.`;
+      }
+      
+      if (nextQuestion) {
+        validationGuidance += ` Then ask: "${nextQuestion}"`;
+      }
+    }
+    
+    if (isSupportMode && nextQuestion) {
+      // SUPPORT MODE + QUALIFICATION ACTIVE (ticket created during qualification)
+      // Abby must BOTH acknowledge ticket AND continue asking qualification question
+      
+      systemPrompt = `You are Abby, a friendly AI assistant for WebChat Sales. ${ticketJustCreated ? 'A support ticket has just been created for this user because they reported a problem or issue. ' : 'A support ticket exists for this user. '}You are also currently in the middle of qualifying this lead.
 
-IMPORTANT - Support Mode Active:
+CRITICAL - DUAL TASK REQUIREMENT:
+You MUST do BOTH of these things in your response:
+
+1. ACKNOWLEDGE TICKET CREATION (if ticket just created):
+   ${ticketJustCreated ? `- Inform the user that their support ticket has been successfully submitted
+   - Tell them their Ticket ID: ${activeTicket.ticketId}
+   - Explain that the support team will contact them soon
+   - Acknowledge their problem and show empathy
+   - Be reassuring and helpful` : `- Acknowledge their problem and show empathy
+   - Reassure them that their ticket (${activeTicket.ticketId}) is being handled`}
+
+2. CONTINUE QUALIFICATION (MANDATORY):
+   - You MUST also ask this exact question: "${nextQuestion}"${validationGuidance}
+   - DO NOT skip qualification just because a ticket was created
+   - DO NOT stop asking questions - continue the qualification flow
+
+RESPONSE STRUCTURE:
+Your response should:
+1. First, acknowledge the ticket: ${ticketJustCreated ? `"I'm sorry to hear about the issue you're experiencing. I've successfully created a support ticket for you (Ticket ID: ${activeTicket.ticketId}). Our support team will review your request and contact you soon to help resolve this."` : `"I understand your concern. Your support ticket (${activeTicket.ticketId}) is being reviewed by our team."`}
+2. Then, immediately continue with qualification: "Also, I'd like to continue getting to know you better. ${nextQuestion}"
+
+Example full response format:
+"I'm sorry to hear about the issue you're experiencing. I've successfully created a support ticket for you (Ticket ID: ${activeTicket.ticketId}). Our support team will review your request and contact you soon to help resolve this. Also, I'd like to continue getting to know you better. ${nextQuestion}"
+
+MANDATORY RULES:
+1. You MUST acknowledge the ticket creation (with Ticket ID if just created)
+2. You MUST ask the qualification question: "${nextQuestion}"
+3. DO NOT skip the qualification question for ANY reason
+4. Both tasks must be completed in the SAME response
+5. Be empathetic about the issue while continuing the qualification flow
+${lastValidationFailure ? '6. If the user just provided an invalid answer, clearly explain what format is needed before asking again.' : ''}
+
+Remember: Support ticket creation does NOT pause qualification - continue asking questions!`;
+    } else if (isSupportMode) {
+      // Support mode ONLY (no qualification active)
+      systemPrompt = `You are Abby, a friendly and empathetic AI assistant for WebChat Sales. ${ticketJustCreated ? 'A support ticket has just been created for this user because they reported a problem or issue.' : 'A support ticket exists for this user.'}
+
+${ticketJustCreated ? `CRITICAL - Ticket Just Created:
+- You MUST inform the user that their support ticket has been successfully submitted
+- Tell them their Ticket ID: ${activeTicket.ticketId}
+- Explain that the support team will contact them soon
+- Acknowledge their problem and show empathy
+- Be reassuring and helpful
+
+Example response format: "I'm sorry to hear about the issue you're experiencing. I've successfully created a support ticket for you (Ticket ID: ${activeTicket.ticketId}). Our support team will review your request and contact you soon to help resolve this. In the meantime, [offer any helpful guidance if possible]."
+
+Remember: You MUST mention the ticket creation and Ticket ID in your response!` : `IMPORTANT - Support Mode Active:
 - Be empathetic, understanding, and solution-focused
 - Acknowledge their problem and show that you care
 - Provide helpful guidance and support
 - If you can't resolve it directly, reassure them that the support team will help
 - Be patient and professional
-- Continue to be helpful while the ticket is being processed
+- Continue to be helpful while the ticket is being processed`}
 
-You can still:
+You can:
 - Answer questions about WebChat Sales services
 - Help with general inquiries
+- Provide guidance and support
 - But prioritize being supportive and empathetic given their issue
 
 Remember: The user has a support ticket (${activeTicket.ticketId}), so be extra attentive and helpful.`;
     } else if (nextQuestion) {
-      // Build helpful validation error message if there was a recent failure
-      let validationGuidance = '';
-      if (lastValidationFailure) {
-        const fieldName = lastValidationFailure.field === 'email' ? 'email address' :
-                         lastValidationFailure.field === 'phone' ? 'phone number' :
-                         lastValidationFailure.field === 'serviceNeed' ? 'service you need' :
-                         lastValidationFailure.field === 'timing' ? 'timing' :
-                         lastValidationFailure.field === 'budget' ? 'budget' :
-                         lastValidationFailure.field === 'name' ? 'name' : lastValidationFailure.field;
-        
-        validationGuidance = `\n\nIMPORTANT - Validation Feedback:\nThe user just provided an answer for ${fieldName}, but it wasn't valid.`;
-        
-        if (lastValidationFailure.field === 'email') {
-          validationGuidance += ` Please clearly explain: "I need a valid email address format (like example@email.com). Could you please provide your email address?"`;
-        } else if (lastValidationFailure.field === 'phone') {
-          validationGuidance += ` Please clearly explain: "I need a valid phone number with digits. Could you please provide your phone number?"`;
-        } else if (lastValidationFailure.field === 'serviceNeed') {
-          validationGuidance += ` Please clearly explain: "I need to know what service you're looking for. Could you please tell me what you need help with?"`;
-        } else if (lastValidationFailure.field === 'timing') {
-          validationGuidance += ` Please clearly explain: "I need to know when you want to start. Could you please tell me your timeline?"`;
-        } else if (lastValidationFailure.field === 'budget') {
-          validationGuidance += ` Please clearly explain: "I need to know your budget range. Could you please tell me your budget?"`;
-        } else {
-          validationGuidance += ` Please clearly explain what format is needed and ask again.`;
-        }
-        
-        validationGuidance += ` Then ask: "${nextQuestion}"`;
-      }
-      
       // Still qualifying - be ABSOLUTELY strict and ask the specific question
       systemPrompt = `You are Abby, a friendly AI sales assistant for WebChat Sales. You are currently qualifying a lead.
 
@@ -519,8 +582,8 @@ Be friendly, informative, and focus on converting this qualified lead into a boo
         await this.addMessage(sessionId, 'assistant', fullResponse);
         console.log(`[ChatService] Assistant response saved: ${fullResponse.length} chars`);
         
-        // Process conversation for lead qualification and support detection
-        await this.processConversationForActions(sessionId, userMessage, fullResponse);
+        // Process conversation for lead qualification (support detection already done earlier)
+        // Note: Support ticket creation already happened before generating response
       } else {
         console.error(`[ChatService] ERROR: Empty response from AI!`);
         throw new Error('AI returned empty response');
@@ -561,19 +624,9 @@ Be friendly, informative, and focus on converting this qualified lead into a boo
 
   private async processConversationForActions(sessionId: string, userMessage: string, assistantResponse: string) {
     try {
-      const conversation = await this.getConversation(sessionId);
-      if (!conversation) return;
-
-      // AI-powered support issue detection - check if user is expressing a problem/issue/complaint
-      const hasSupportIssue = await this.detectSupportIssue(userMessage, conversation);
-      
-      if (hasSupportIssue) {
-        console.log(`[ChatService] 🔴 Support issue detected for session ${sessionId}`);
-        await this.handleSupportIssue(sessionId, conversation);
-      }
-
-      // Extract lead information and check if qualified
-      await this.extractAndSaveLead(sessionId, conversation);
+      // Note: Support detection and ticket creation now happens BEFORE generating AI response
+      // This function is kept for backwards compatibility but is mostly unused now
+      // Lead extraction happens earlier in the flow as well
     } catch (error) {
       console.error(`[ChatService] Error processing conversation actions:`, error);
     }
@@ -644,8 +697,9 @@ Respond with JSON: {"isSupportIssue": true/false, "reason": "brief explanation",
   /**
    * Handle support issue - automatically create ticket with all required fields
    * This is the core support handling logic that ensures proper ticket creation
+   * Returns the created ticket so caller can use ticket ID in response
    */
-  private async handleSupportIssue(sessionId: string, conversation: any) {
+  private async handleSupportIssue(sessionId: string, conversation: any): Promise<any> {
     try {
       // Check if ticket already exists for this session
       const existingTicket = await this.supportService.getTicketBySessionId(sessionId);
@@ -699,8 +753,12 @@ Respond with JSON: {"isSupportIssue": true/false, "reason": "brief explanation",
       await this.sendTicketToDashboard(ticket, lead, conversation);
 
       // Note: Email notifications are sent automatically by SupportService.createSupportTicket
+      
+      // Return the ticket so caller can reference it in the response
+      return ticket;
     } catch (error) {
       console.error(`[ChatService] Error handling support issue:`, error);
+      return null;
     }
   }
 
