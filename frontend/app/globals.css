@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #060a08;
+  --ink: #e9fff6;
+  --muted: #9fd8c5;
+  --emerald: #00ff99;
+  --emerald2: #00c983;
+  --line: #153f30;
+  --panel: #0a1310;
+  --glass: #0d1814cc;
+  --silver: #dde7e3;
+  --shadow: #0009;
+  
+  /* Legacy variables for compatibility */
+  --background: var(--bg);
+  --foreground: var(--ink);
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Gradient backgrounds for key sections */
+.bg-gradient-emerald {
+  background: linear-gradient(135deg, var(--emerald), var(--emerald2));
+}
+
+/* Custom scrollbar for emerald theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--emerald2);
+}
+
+/* Focus styles */
+*:focus-visible {
+  outline: 2px solid var(--emerald);
+  outline-offset: 2px;
+}
+
+/* Placeholder styles */
+::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+/* Fix list styling in chat messages */
+.prose ol,
+.prose ul {
+  list-style-position: outside !important;
+  padding-left: 1.5rem !important;
+}
+
+.prose ol li,
+.prose ul li {
+  display: list-item !important;
+  padding-left: 0.5rem !important;
+  margin-left: 0 !important;
+}
+
+.prose ol li::marker,
+.prose ul li::marker {
+  color: var(--emerald);
+  font-weight: bold;
+}
+
+/* Ensure list items don't break */
+.prose li {
+  display: list-item !important;
+  list-style-position: outside !important;
+}
+
+/* Custom ping animation for loader */
+@keyframes ping {
+  75%, 100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
