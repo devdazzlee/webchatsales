@@ -331,6 +331,10 @@ export default function Chatbot() {
                 if (timeoutId) clearTimeout(timeoutId);
                 setIsStreaming(false);
                 setIsLoading(false);
+                // Auto-focus input when streaming completes
+                setTimeout(() => {
+                  inputRef.current?.focus();
+                }, 150);
               }
             } catch (parseError) {
               // Skip malformed JSON
@@ -344,6 +348,11 @@ export default function Chatbot() {
       if (timeoutId) clearTimeout(timeoutId);
       setIsStreaming(false);
       setIsLoading(false);
+      
+      // Auto-focus input after response completes
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 150);
     } catch (error: unknown) {
       // Clear timeout if it exists
       if (timeoutId) {
