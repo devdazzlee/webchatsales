@@ -525,14 +525,34 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       }
     }
     
-    // Check discovery phase - MUST complete before qualification
-    const discoveryPhase = await this.checkDiscoveryPhase(conversation);
-    console.log(`[ChatService] Discovery phase check for ${sessionId}:`, discoveryPhase);
+    // Check if we're in demo mode (WebChatSales.com - not client websites)
+    // Demo mode: No lead qualification, no booking - just explain WebChatSales
+    const isDemoMode = process.env.DEMO_MODE === 'true' || 
+                       process.env.DEMO_MODE === '1' ||
+                       (process.env.FRONTEND_URL && process.env.FRONTEND_URL.includes('webchatsales.com'));
     
-    // Extract lead data from conversation (this updates the lead in database)
-    // Always extract - if user mentions business needs during discovery, we capture it
-    // But we don't ASK for personal info during discovery (that's controlled by question flow)
-    await this.extractAndSaveLead(sessionId, conversation);
+    if (isDemoMode) {
+      console.log(`[ChatService] 🎭 Demo mode active for ${sessionId} - WebChatSales.com chatbot (no qualification/booking)`);
+    }
+
+    // Skip discovery/qualification in demo mode
+    let discoveryPhase: { isComplete: boolean; discoveryCount: number; nextDiscoveryQuestion?: string | null } = { 
+      isComplete: true, 
+      discoveryCount: 0, 
+      nextDiscoveryQuestion: null 
+    };
+    if (!isDemoMode) {
+      // Check discovery phase - MUST complete before qualification
+      discoveryPhase = await this.checkDiscoveryPhase(conversation);
+      console.log(`[ChatService] Discovery phase check for ${sessionId}:`, discoveryPhase);
+      
+      // Extract lead data from conversation (this updates the lead in database)
+      // Always extract - if user mentions business needs during discovery, we capture it
+      // But we don't ASK for personal info during discovery (that's controlled by question flow)
+      await this.extractAndSaveLead(sessionId, conversation);
+    } else {
+      console.log(`[ChatService] Demo mode active for ${sessionId} - skipping lead qualification`);
+    }
     
     // Get lead state AFTER extraction to detect if a field was cleared (validation failure)
     // Note: Using immediate refetch - MongoDB write is synchronous in this context
@@ -556,14 +576,17 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     }
 
     // Determine next question: Discovery first, then qualification
+    // Skip in demo mode - no questions needed
     let nextQuestionResult: string | { question: string; lastFailure?: { field: string; reason?: string } } | null = null;
     
-    if (!discoveryPhase.isComplete) {
-      // Still in discovery phase - use discovery question
-      nextQuestionResult = discoveryPhase.nextDiscoveryQuestion || "What happens to those leads when your team isn't available?";
-    } else {
-      // Discovery complete - proceed with qualification
-      nextQuestionResult = await this.getNextQualificationQuestion(sessionId, lastValidationFailure);
+    if (!isDemoMode) {
+      if (!discoveryPhase.isComplete) {
+        // Still in discovery phase - use discovery question
+        nextQuestionResult = discoveryPhase.nextDiscoveryQuestion || "What happens to those leads when your team isn't available?";
+      } else {
+        // Discovery complete - proceed with qualification
+        nextQuestionResult = await this.getNextQualificationQuestion(sessionId, lastValidationFailure);
+      }
     }
     
     // Handle null case (all questions answered - qualification complete)
@@ -585,15 +608,16 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     const activeTicket = newlyCreatedTicket || await this.supportService.getTicketBySessionId(sessionId);
     const isSupportMode = activeTicket && activeTicket.status !== 'closed' && activeTicket.status !== 'resolved';
     const ticketJustCreated = newlyCreatedTicket !== null;
-    
+
     // Determine if we're in discovery or qualification phase
     const isDiscoveryPhase = !discoveryPhase.isComplete;
-    const isQualificationActive = discoveryPhase.isComplete && nextQuestion !== null;
+    const isQualificationActive = discoveryPhase.isComplete && nextQuestion !== null && !isDemoMode;
 
     // Get lead data if qualification is complete (for demo link)
+    // Skip in demo mode - no booking links for WebChatSales.com
     let lead: any = null;
     let schedulingLink: string | undefined;
-    if (!isQualificationActive && !isDiscoveryPhase) {
+    if (!isQualificationActive && !isDiscoveryPhase && !isDemoMode) {
       lead = await this.leadService.getLeadBySessionId(sessionId);
       schedulingLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/book-demo?sessionId=${sessionId}`;
     }
@@ -601,18 +625,19 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     // Build system prompt using PromptBuilderService (clean separation of concerns)
     const systemPrompt = this.promptBuilder.buildSystemPrompt({
       isSupportMode,
-      isQualificationActive,
+      isQualificationActive: isDemoMode ? false : isQualificationActive,
       ticketJustCreated,
       activeTicketId: activeTicket?.ticketId,
-      nextQuestion: isDiscoveryPhase ? null : nextQuestion,
+      nextQuestion: isDemoMode ? null : (isDiscoveryPhase ? null : nextQuestion),
       lastValidationFailure,
       leadServiceNeed: lead?.serviceNeed,
       leadTiming: lead?.timing,
       leadBudget: lead?.budget,
       schedulingLink,
-      isDiscoveryPhase,
-      nextDiscoveryQuestion: isDiscoveryPhase ? (nextQuestionResult as string) : null,
+      isDiscoveryPhase: isDemoMode ? false : isDiscoveryPhase,
+      nextDiscoveryQuestion: isDemoMode ? null : (isDiscoveryPhase ? (nextQuestionResult as string) : null),
       discoveryCount: discoveryPhase.discoveryCount,
+      isDemoMode,
     });
 
     // Convert conversation messages to OpenAI format
@@ -1759,6 +1784,15 @@ Return JSON: {"name": null or "value", "email": null or "value", "phone": null o
    */
   async handleDemoBooking(sessionId: string, timeSlot: Date, notes?: string): Promise<any> {
     try {
+      // Check if we're in demo mode (WebChatSales.com - no bookings allowed)
+      const isDemoMode = process.env.DEMO_MODE === 'true' || 
+                         process.env.DEMO_MODE === '1' ||
+                         (process.env.FRONTEND_URL && process.env.FRONTEND_URL.includes('webchatsales.com'));
+      
+      if (isDemoMode) {
+        throw new Error('Demo booking is not available on WebChatSales.com. Demo booking is only available on client websites where Abby is installed.');
+      }
+
       // Check if user already has a booking
       const hasBooking = await this.bookingService.hasExistingBooking(sessionId);
       if (hasBooking) {

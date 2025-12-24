@@ -147,6 +147,19 @@ export class ChatController {
   @Post('book-demo')
   async bookDemo(@Body() body: { sessionId: string; timeSlot: string; notes?: string }) {
     try {
+      // Check if we're in demo mode (WebChatSales.com - no bookings allowed)
+      const isDemoMode = process.env.DEMO_MODE === 'true' || 
+                         process.env.DEMO_MODE === '1' ||
+                         (process.env.FRONTEND_URL && process.env.FRONTEND_URL.includes('webchatsales.com'));
+      
+      if (isDemoMode) {
+        console.log(`[ChatController] ⚠️ Demo booking attempt blocked - demo mode is active`);
+        return {
+          success: false,
+          error: 'Demo booking is not available on WebChatSales.com. Demo booking is only available on client websites where Abby is installed.',
+        };
+      }
+
       const { sessionId, timeSlot, notes } = body;
       
       if (!sessionId || !timeSlot) {

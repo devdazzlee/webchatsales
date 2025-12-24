@@ -108,10 +108,10 @@ export default function Chatbot() {
       const data = await response.json();
       if (data.success) {
         setSessionId(data.sessionId);
-        // Auto-send greeting message - discovery first, no personal info
+        // Auto-send greeting message - demo mode greeting for WebChatSales.com
         const greetingMessage: Message = {
           id: '1',
-          text: 'Hey! I\'m Abby from WebChatSales. I help businesses capture and qualify leads 24/7 so after-hours inquiries don\'t get missed. Out of curiosity, how do you currently handle website inquiries when no one\'s available?',
+          text: 'Hey! I\'m Abby, the demo chatbot for WebChatSales. I\'m here to show you how WebChatSales works! WebChatSales helps businesses capture and qualify leads 24/7 with an AI chatbot like me. What would you like to know about WebChatSales?',
           sender: 'abby',
           timestamp: new Date(),
         };
@@ -145,8 +145,8 @@ export default function Chatbot() {
           {
             id: '1',
             text: isConnectionError
-              ? 'Hey! I\'m Abby from WebChatSales. However, I\'m unable to connect to the server right now. Please make sure the backend is running on http://localhost:9000'
-              : 'Hey! I\'m Abby from WebChatSales. I help businesses capture and qualify leads 24/7 so after-hours inquiries don\'t get missed. Out of curiosity, how do you currently handle website inquiries when no one\'s available?',
+              ? 'Hey! I\'m Abby, the demo chatbot for WebChatSales. However, I\'m unable to connect to the server right now. Please make sure the backend is running on http://localhost:9000'
+              : 'Hey! I\'m Abby, the demo chatbot for WebChatSales. I\'m here to show you how WebChatSales works! WebChatSales helps businesses capture and qualify leads 24/7 with an AI chatbot like me. What would you like to know about WebChatSales?',
             sender: 'abby',
             timestamp: new Date(),
           },
@@ -183,7 +183,7 @@ export default function Chatbot() {
           if (messages.length === 0) {
             const greetingMessage: Message = {
               id: '1',
-              text: 'Hey! I\'m Abby from WebChatSales. I help businesses capture and qualify leads 24/7 so after-hours inquiries don\'t get missed. Out of curiosity, how do you currently handle website inquiries when no one\'s available?',
+              text: 'Hey! I\'m Abby, the demo chatbot for WebChatSales. I\'m here to show you how WebChatSales works! WebChatSales helps businesses capture and qualify leads 24/7 with an AI chatbot like me. What would you like to know about WebChatSales?',
               sender: 'abby',
               timestamp: new Date(),
             };
@@ -231,6 +231,9 @@ export default function Chatbot() {
 
     abortControllerRef.current = new AbortController();
 
+    // Declare timeoutId outside try block so it's accessible in catch
+    let timeoutId: NodeJS.Timeout | null = null;
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/chat/message`, {
         method: 'POST',
@@ -245,24 +248,43 @@ export default function Chatbot() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to send message');
+        const errorText = await response.text().catch(() => 'Unknown error');
+        console.error(`[Chatbot] HTTP error ${response.status}:`, errorText);
+        throw new Error(`Failed to send message: ${response.status} ${errorText.substring(0, 100)}`);
       }
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
       if (!reader) {
-        throw new Error('No response body');
+        throw new Error('No response body - server may not support streaming');
       }
 
       // Create assistant message when first chunk arrives
       let assistantMessageId: string | null = null;
       let accumulatedText = '';
+      let hasReceivedChunk = false;
+
+      // Set timeout to detect if streaming stalls (black screen issue)
+      const resetTimeout = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          if (hasReceivedChunk && isStreaming) {
+            console.warn('Stream timeout - no chunks received for 30 seconds');
+            setIsStreaming(false);
+            setIsLoading(false);
+          }
+        }, 30000); // 30 second timeout
+      };
+
+      resetTimeout();
 
       while (true) {
         const { done, value } = await reader.read();
         
         if (done) break;
+
+        resetTimeout(); // Reset timeout on each chunk
 
         const chunk = decoder.decode(value);
         const lines = chunk.split('\n');
@@ -275,6 +297,7 @@ export default function Chatbot() {
                 throw new Error(data.error);
               }
               if (data.chunk) {
+                hasReceivedChunk = true;
                 accumulatedText += data.chunk;
                 
                 // Create message on first chunk
@@ -305,61 +328,85 @@ export default function Chatbot() {
                 }
               }
               if (data.done) {
+                if (timeoutId) clearTimeout(timeoutId);
                 setIsStreaming(false);
                 setIsLoading(false);
               }
-            } catch {
+            } catch (parseError) {
               // Skip malformed JSON
+              console.warn('Failed to parse SSE data:', parseError);
             }
           }
         }
       }
 
-      // Ensure both states are cleared when stream completes
+      // Clear timeout and ensure both states are cleared when stream completes
+      if (timeoutId) clearTimeout(timeoutId);
       setIsStreaming(false);
       setIsLoading(false);
     } catch (error: unknown) {
+      // Clear timeout if it exists
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+
       if (error instanceof Error && error.name === 'AbortError') {
-        console.log('Request aborted');
-      } else {
-        console.error('Error sending message:', error);
-        // Check if it's a connection error
-        const isConnectionError = error instanceof TypeError && 
-          (error.message.includes('Failed to fetch') || 
-           error.message.includes('ERR_CONNECTION_REFUSED') ||
-           error.message.includes('NetworkError'));
-        
-        // Add error message if no assistant message was created yet
+        console.log('Request aborted by user');
+        setIsStreaming(false);
+        setIsLoading(false);
+        return;
+      }
+      
+      console.error('Error sending message:', error);
+      
+      // Check if it's a connection error
+      const isConnectionError = error instanceof TypeError && 
+        (error.message.includes('Failed to fetch') || 
+         error.message.includes('ERR_CONNECTION_REFUSED') ||
+         error.message.includes('NetworkError') ||
+         error.message.includes('Network request failed'));
+      
+      // Check if we already created an assistant message (partial response)
+      const lastAbbyMessage = messages.filter(msg => msg.sender === 'abby').pop();
+      const hasAssistantMessage = lastAbbyMessage && 
+        lastAbbyMessage.timestamp.getTime() > Date.now() - 10000; // Created in last 10 seconds
+      
+      // Only add error message if no assistant message was created
+      if (!hasAssistantMessage) {
         const errorMessageId = (Date.now() + 1).toString();
         setMessages((prev) => [
           ...prev,
           {
             id: errorMessageId,
             text: isConnectionError 
-              ? 'Sorry, I\'m unable to connect to the server. Please make sure the backend is running on http://localhost:9000'
+              ? 'Sorry, I\'m unable to connect to the server right now. Please check your connection and try again.'
               : 'Sorry, I encountered an error. Please try again.',
             sender: 'abby',
             timestamp: new Date(),
           },
         ]);
         if (isConnectionError) {
-          setConnectionError('Backend server is not running');
+          setConnectionError('Connection error');
         }
       }
+      
       setIsStreaming(false);
       setIsLoading(false);
     } finally {
       // Fallback: ensure states are cleared even if something goes wrong
+      if (timeoutId) clearTimeout(timeoutId);
       setIsLoading(false);
       setIsStreaming(false);
       abortControllerRef.current = null;
     }
   };
 
+  // Quick questions appropriate for demo mode (explaining WebChatSales, not qualifying leads)
   const quickQuestions = [
-    'What can Abby do for my business?',
-    'How does pricing work?',
-    'Can I try Abby on my website?',
+    'What does WebChatSales do?',
+    'How does Abby work?',
+    'What features does WebChatSales offer?',
   ];
 
   const handleQuickQuestion = async (question: string) => {

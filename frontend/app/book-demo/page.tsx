@@ -191,6 +191,11 @@ function BookDemoContent() {
     }
   };
 
+  // Check if we're on WebChatSales.com (demo mode - no bookings)
+  const isDemoSite = typeof window !== 'undefined' && 
+                     (window.location.hostname.includes('webchatsales.com') || 
+                      process.env.NEXT_PUBLIC_DEMO_MODE === 'true');
+
   if (!sessionId) {
     return (
       <>
@@ -200,7 +205,38 @@ function BookDemoContent() {
             <div className="border rounded-lg p-8 text-center" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
               <h2 className="text-2xl font-bold mb-4" style={{ color: 'var(--ink)' }}>Invalid Session</h2>
               <p className="mb-6" style={{ color: 'var(--muted)' }}>
-                Session ID is missing. Please return to the chat and try booking again.
+                {isDemoSite 
+                  ? 'Demo booking is not available on WebChatSales.com. Demo booking is only available on client websites where Abby is installed.'
+                  : 'Session ID is missing. Please return to the chat and try booking again.'}
+              </p>
+              <button
+                onClick={() => router.push('/')}
+                className="px-6 py-3 rounded font-medium transition-colors bg-gradient-emerald text-black hover:opacity-90"
+              >
+                Return to Home
+              </button>
+            </div>
+          </div>
+        </div>
+        <Footer />
+      </>
+    );
+  }
+
+  // Block demo booking on WebChatSales.com (demo mode)
+  if (isDemoSite) {
+    return (
+      <>
+        <Header />
+        <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+          <div className="max-w-md w-full">
+            <div className="border rounded-lg p-8 text-center" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+              <h2 className="text-2xl font-bold mb-4" style={{ color: 'var(--ink)' }}>Demo Booking Not Available</h2>
+              <p className="mb-4" style={{ color: 'var(--muted)' }}>
+                Demo booking is not available on WebChatSales.com. This is the demo site where you can see how Abby works.
+              </p>
+              <p className="mb-6" style={{ color: 'var(--muted)' }}>
+                Demo booking and appointment scheduling are only available on client websites where Abby is installed for their customers.
               </p>
               <button
                 onClick={() => router.push('/')}

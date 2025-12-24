@@ -60,6 +60,15 @@ async function bootstrap() {
   if (!process.env.PORT) {
     console.warn('⚠️  PORT environment variable not set. Using default port 9000.');
   }
+  
+  // Check if demo mode is enabled
+  const isDemoMode = process.env.DEMO_MODE === 'true' || 
+                     process.env.DEMO_MODE === '1' ||
+                     (process.env.FRONTEND_URL && process.env.FRONTEND_URL.includes('webchatsales.com'));
+  if (isDemoMode) {
+    console.log('🎭 Demo mode enabled - WebChatSales.com chatbot (no lead qualification/booking)');
+  }
+  
   await app.listen(port);
   const serverUrl = process.env.SERVER_URL || (process.env.FRONTEND_URL ? new URL(process.env.FRONTEND_URL).origin.replace(':3000', `:${port}`) : `http://localhost:${port}`);
   console.log(`🚀 Backend server running on ${serverUrl}`);
