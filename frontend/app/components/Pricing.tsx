@@ -20,14 +20,16 @@ export default function Pricing() {
     {
       name: "Abby Solo",
       tier: "Starter",
-      price: "$297",
-      originalPrice: "$497",
+      price: "$97",
+      originalPrice: null,
       planType: "starter",
       description: "Abby on your website (1 domain)",
       features: [
         "Leads engaged 24/7 (basic flows)",
         "Qualifies + books to your calendar",
-        "Email transcript to your inbox"
+        "Email transcript to your inbox",
+        "30-day risk-free trial",
+        "No card required to start"
       ],
       buttonText: "Get Started",
       buttonClass: "bg-gradient-emerald hover:opacity-90 text-black"
@@ -37,11 +39,10 @@ export default function Pricing() {
   return (
     <section id="pricing" className="py-20 px-4 sm:px-6 lg:px-8" style={{ background: 'var(--bg)' }}>
       <div className="max-w-7xl mx-auto">
-        {/* Founder Special Banner */}
+        {/* Pricing Banner */}
         <div className="mb-8 p-4 rounded-lg text-center" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%)', border: '2px solid var(--emerald)' }}>
           <p className="text-lg font-semibold" style={{ color: 'var(--emerald)' }}>
-            <span style={{ textDecoration: 'line-through', opacity: 0.6, marginRight: '8px' }}>$497</span>
-            <span style={{ fontWeight: 'bold' }}>$297</span> / month • Founder Special: First 20 spots • <span style={{ fontWeight: 'bold' }}>4 spots left</span>
+            <span style={{ fontWeight: 'bold' }}>$97</span> / month • <span style={{ fontWeight: 'bold' }}>30-day risk-free trial</span> • No card required to start
           </p>
         </div>
         
@@ -68,11 +69,10 @@ export default function Pricing() {
               <div className="p-6">
                 <div className="mb-4">
                   <div className="flex items-center gap-3">
-                    <span className="text-4xl font-bold line-through opacity-50" style={{ color: 'var(--muted)' }}>$497</span>
-                    <span className="text-4xl font-bold" style={{ color: 'var(--emerald)' }}>$297</span>
+                    <span className="text-4xl font-bold" style={{ color: 'var(--emerald)' }}>$97</span>
                     <span className="ml-2" style={{ color: 'var(--muted)' }}>/ month</span>
                   </div>
-                  <p className="text-sm mt-2" style={{ color: 'var(--emerald)' }}>Founder Special Pricing</p>
+                  <p className="text-sm mt-2" style={{ color: 'var(--emerald)' }}>30-day risk-free trial • No card required</p>
                 </div>
                 <p className="mb-6" style={{ color: 'var(--muted)' }}>{plan.description}</p>
                 <ul className="space-y-3 mb-8">

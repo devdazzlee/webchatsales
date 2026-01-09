@@ -18,6 +18,21 @@ export class Lead {
   phone: string;
 
   @Prop()
+  company: string; // Company name (sales agent flow)
+
+  @Prop()
+  businessType: string; // What the business does (sales agent discovery)
+
+  @Prop()
+  customers: string; // Who their customers are (sales agent discovery)
+
+  @Prop()
+  pricingTier: string; // Lower ticket or higher ticket (sales agent discovery)
+
+  @Prop()
+  biggestProblem: string; // Biggest problem they're trying to solve (sales agent discovery)
+
+  @Prop()
   serviceNeed: string;
 
   @Prop()

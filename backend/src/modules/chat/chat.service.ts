@@ -9,6 +9,7 @@ import { SupportService } from '../support/support.service';
 import { EmailService } from '../email/email.service';
 import { BookingService } from '../booking/booking.service';
 import { PromptBuilderService } from './prompt-builder.service';
+import { SalesAgentPromptService } from './sales-agent-prompt.service';
 import { config } from '../../config/config';
 
 @Injectable()
@@ -24,6 +25,7 @@ export class ChatService {
     private emailService: EmailService,
     private bookingService: BookingService,
     private promptBuilder: PromptBuilderService,
+    private salesAgentPrompt: SalesAgentPromptService,
   ) {
     // Get OpenAI API key from environment variables
     const openaiApiKey = 
@@ -172,6 +174,43 @@ export class ChatService {
   }
 
   /**
+   * Get next sales agent discovery question (new flow)
+   * Opening: name + company → "What brought you here today?" → discovery questions
+   */
+  private getNextSalesAgentDiscoveryQuestion(existingLead: any): string | null {
+    // Opening flow: name + company first (handled by opening phase)
+    // After name + company, ask "What brought you here today?" (handled by opening phase after they answer)
+    // Then discovery: businessType → customers → pricingTier → biggestProblem
+    if (!existingLead?.businessType) {
+      return "What does your business do?";
+    }
+    if (!existingLead?.customers) {
+      return "Who are your main customers?";
+    }
+    if (!existingLead?.pricingTier) {
+      return "Are you more lower ticket or higher ticket?";
+    }
+    if (!existingLead?.biggestProblem) {
+      return "What's the biggest problem you're trying to solve right now?";
+    }
+    return null; // Discovery complete
+  }
+
+  /**
+   * Get next sales agent qualification question (after discovery)
+   */
+  private getNextSalesAgentQualificationQuestion(existingLead: any): string | null {
+    // Sales agent qualification: email → phone
+    if (!existingLead?.email) {
+      return "What's the best email to reach you?";
+    }
+    if (!existingLead?.phone) {
+      return "And your phone number?";
+    }
+    return null; // Qualification complete - ready for closing
+  }
+
+  /**
    * Determines what qualification question to ask next based on collected lead data
    * This is a programmatic approach that checks the database for collected information
    * STRICT: Does not move to next question until current one is properly answered
@@ -180,6 +219,26 @@ export class ChatService {
   private async getNextQualificationQuestion(sessionId: string, lastValidationFailure?: { field: string; reason?: string } | null): Promise<string | { question: string; lastFailure?: { field: string; reason?: string } } | null> {
     // Check existing lead data from database (most reliable source)
     const existingLead = await this.leadService.getLeadBySessionId(sessionId);
+    
+    // Check if we should use sales agent flow (client websites, not demo mode)
+    const isDemoMode = process.env.DEMO_MODE === 'true' || 
+                       process.env.DEMO_MODE === '1' ||
+                       (process.env.FRONTEND_URL && process.env.FRONTEND_URL.includes('webchatsales.com'));
+    
+    if (!isDemoMode) {
+      // Sales agent flow: Check discovery first, then qualification
+      const discoveryQuestion = this.getNextSalesAgentDiscoveryQuestion(existingLead);
+      if (discoveryQuestion) {
+        return discoveryQuestion;
+      }
+      // Discovery complete, check qualification
+      const qualificationQuestion = this.getNextSalesAgentQualificationQuestion(existingLead);
+      if (qualificationQuestion) {
+        return qualificationQuestion;
+      }
+      // All questions answered - ready for closing
+      return null;
+    }
     
     // Use AI to validate existing answers to ensure they're still valid
     // This catches cases where an invalid update attempt should keep us on the same question
@@ -542,14 +601,14 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       nextDiscoveryQuestion: null 
     };
     if (!isDemoMode) {
-      // Check discovery phase - MUST complete before qualification
+    // Check discovery phase - MUST complete before qualification
       discoveryPhase = await this.checkDiscoveryPhase(conversation);
-      console.log(`[ChatService] Discovery phase check for ${sessionId}:`, discoveryPhase);
-      
-      // Extract lead data from conversation (this updates the lead in database)
-      // Always extract - if user mentions business needs during discovery, we capture it
-      // But we don't ASK for personal info during discovery (that's controlled by question flow)
-      await this.extractAndSaveLead(sessionId, conversation);
+    console.log(`[ChatService] Discovery phase check for ${sessionId}:`, discoveryPhase);
+    
+    // Extract lead data from conversation (this updates the lead in database)
+    // Always extract - if user mentions business needs during discovery, we capture it
+    // But we don't ASK for personal info during discovery (that's controlled by question flow)
+    await this.extractAndSaveLead(sessionId, conversation);
     } else {
       console.log(`[ChatService] Demo mode active for ${sessionId} - skipping lead qualification`);
     }
@@ -575,18 +634,12 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       }
     }
 
-    // Determine next question: Discovery first, then qualification
-    // Skip in demo mode - no questions needed
+    // Determine next question: Use sales agent flow for client websites, skip for demo mode
     let nextQuestionResult: string | { question: string; lastFailure?: { field: string; reason?: string } } | null = null;
     
     if (!isDemoMode) {
-      if (!discoveryPhase.isComplete) {
-        // Still in discovery phase - use discovery question
-        nextQuestionResult = discoveryPhase.nextDiscoveryQuestion || "What happens to those leads when your team isn't available?";
-      } else {
-        // Discovery complete - proceed with qualification
-        nextQuestionResult = await this.getNextQualificationQuestion(sessionId, lastValidationFailure);
-      }
+      // Sales agent flow: Use new discovery/qualification questions
+      nextQuestionResult = await this.getNextQualificationQuestion(sessionId, lastValidationFailure);
     }
     
     // Handle null case (all questions answered - qualification complete)
@@ -608,37 +661,128 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     const activeTicket = newlyCreatedTicket || await this.supportService.getTicketBySessionId(sessionId);
     const isSupportMode = activeTicket && activeTicket.status !== 'closed' && activeTicket.status !== 'resolved';
     const ticketJustCreated = newlyCreatedTicket !== null;
+    
+    // Get lead data for context
+    const lead = await this.leadService.getLeadBySessionId(sessionId);
 
-    // Determine if we're in discovery or qualification phase
+    // Detect urgency/emergency situations (for client websites)
+    const isUrgent = !isDemoMode && this.salesAgentPrompt.detectUrgency(userMessage);
+    
+    // If urgent, notify client immediately (client's email, not lead's email)
+    if (isUrgent) {
+      console.log(`[ChatService] 🚨 URGENT inquiry detected for ${sessionId} - notifying client immediately`);
+      try {
+        // Get client email from environment (this is the business owner's email)
+        const clientEmail = process.env.CLIENT_EMAIL || config.adminEmail;
+        if (clientEmail) {
+          const leadName = lead?.name || 'Unknown';
+          const leadPhone = lead?.phone || 'Not provided yet';
+          const leadEmail = lead?.email || 'Not provided yet';
+          
+          await this.emailService.sendEmail(
+            clientEmail,
+            `🚨 URGENT INQUIRY: ${userMessage.substring(0, 50)}...`,
+            `
+              <h2>🚨 Urgent Inquiry - Immediate Action Required</h2>
+              <div style="background: #fee; padding: 15px; border-left: 4px solid #f00; margin: 10px 0;">
+                <p><strong>URGENT MESSAGE:</strong> ${userMessage}</p>
+              </div>
+              <p><strong>Lead Name:</strong> ${leadName}</p>
+              <p><strong>Lead Phone:</strong> ${leadPhone}</p>
+              <p><strong>Lead Email:</strong> ${leadEmail}</p>
+              <p><strong>Session ID:</strong> ${sessionId}</p>
+              <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+              <p style="color: #f00; font-weight: bold;">⚠️ ACTION REQUIRED: Contact this lead immediately</p>
+            `
+          );
+          console.log(`[ChatService] ✅ Urgent notification sent to client: ${clientEmail}`);
+        } else {
+          console.warn(`[ChatService] ⚠️ CLIENT_EMAIL not set - cannot send urgent notification`);
+        }
+      } catch (error) {
+        console.error(`[ChatService] Error sending urgent notification:`, error);
+      }
+    }
+    
+    // Detect objections
+    const objectionDetection = !isDemoMode ? this.salesAgentPrompt.detectObjection(userMessage) : { hasObjection: false };
+    const hasObjection = objectionDetection.hasObjection;
+    const objectionType = objectionDetection.objectionType;
+
+    // Determine conversation phase for sales agent mode
+    let conversationPhase: 'opening' | 'discovery' | 'qualification' | 'objection' | 'closing' = 'opening';
+    if (hasObjection) {
+      conversationPhase = 'objection';
+    } else if (!lead?.name || !lead?.company) {
+      conversationPhase = 'opening';
+    } else if (!lead?.businessType || !lead?.customers || !lead?.pricingTier || !lead?.biggestProblem) {
+      conversationPhase = 'discovery';
+    } else if (!lead?.email || !lead?.phone) {
+      conversationPhase = 'qualification';
+    } else {
+      conversationPhase = 'closing';
+    }
+
+    // Determine if we're in discovery or qualification phase (for legacy system)
     const isDiscoveryPhase = !discoveryPhase.isComplete;
     const isQualificationActive = discoveryPhase.isComplete && nextQuestion !== null && !isDemoMode;
 
     // Get lead data if qualification is complete (for demo link)
     // Skip in demo mode - no booking links for WebChatSales.com
-    let lead: any = null;
     let schedulingLink: string | undefined;
-    if (!isQualificationActive && !isDiscoveryPhase && !isDemoMode) {
-      lead = await this.leadService.getLeadBySessionId(sessionId);
+    if (!isQualificationActive && !isDiscoveryPhase && !isDemoMode && lead) {
       schedulingLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/book-demo?sessionId=${sessionId}`;
     }
 
-    // Build system prompt using PromptBuilderService (clean separation of concerns)
-    const systemPrompt = this.promptBuilder.buildSystemPrompt({
+    // Build system prompt - use Sales Agent for client websites, legacy for demo mode
+    let systemPrompt: string;
+    
+    if (isDemoMode) {
+      // Demo mode - use legacy prompt builder
+      systemPrompt = this.promptBuilder.buildSystemPrompt({
       isSupportMode,
-      isQualificationActive: isDemoMode ? false : isQualificationActive,
+        isQualificationActive: false,
       ticketJustCreated,
       activeTicketId: activeTicket?.ticketId,
-      nextQuestion: isDemoMode ? null : (isDiscoveryPhase ? null : nextQuestion),
+        nextQuestion: null,
       lastValidationFailure,
       leadServiceNeed: lead?.serviceNeed,
       leadTiming: lead?.timing,
       leadBudget: lead?.budget,
       schedulingLink,
-      isDiscoveryPhase: isDemoMode ? false : isDiscoveryPhase,
-      nextDiscoveryQuestion: isDemoMode ? null : (isDiscoveryPhase ? (nextQuestionResult as string) : null),
-      discoveryCount: discoveryPhase.discoveryCount,
-      isDemoMode,
-    });
+        isDiscoveryPhase: false,
+        nextDiscoveryQuestion: null,
+        discoveryCount: 0,
+        isDemoMode: true,
+      });
+    } else {
+      // Client website - use Sales Agent prompt system
+      systemPrompt = this.salesAgentPrompt.buildSalesAgentPrompt({
+        conversationPhase,
+        nextQuestion: nextQuestion || undefined,
+        clientContext: {
+          // TODO: Load from client intake form / database
+          companyName: process.env.CLIENT_COMPANY_NAME,
+          industry: process.env.CLIENT_INDUSTRY,
+          services: process.env.CLIENT_SERVICES?.split(','),
+          location: process.env.CLIENT_LOCATION,
+          businessHours: process.env.CLIENT_BUSINESS_HOURS,
+        },
+        hasObjection,
+        objectionType,
+        collectedData: {
+          name: lead?.name,
+          company: lead?.company,
+          businessType: lead?.businessType,
+          customers: lead?.customers,
+          pricingTier: lead?.pricingTier,
+          biggestProblem: lead?.biggestProblem,
+          email: lead?.email,
+          phone: lead?.phone,
+        },
+        isUrgent,
+      });
+    }
 
     // Convert conversation messages to OpenAI format
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
@@ -1099,7 +1243,14 @@ Respond with JSON: {"summary": "brief summary text"}`;
       
       // Use OpenAI to extract structured lead data
       // ROOT CAUSE: Train the model to understand context and intent, not just keywords
-      const extractionPrompt = `You are a lead qualification data extractor. Extract these fields: name, email, phone, serviceNeed, timing, budget, leadsPerDay, overnightLeads, returnCallTiming.
+      // Check if we're in sales agent mode (client websites, not demo)
+      const isDemoMode = process.env.DEMO_MODE === 'true' || 
+                         process.env.DEMO_MODE === '1' ||
+                         (process.env.FRONTEND_URL && process.env.FRONTEND_URL.includes('webchatsales.com'));
+      
+      const extractionPrompt = `You are a lead qualification data extractor. Extract these fields: ${isDemoMode 
+        ? 'name, email, phone, serviceNeed, timing, budget, leadsPerDay, overnightLeads, returnCallTiming'
+        : 'name, company, email, phone, businessType, customers, pricingTier, biggestProblem, serviceNeed, timing, budget, leadsPerDay, overnightLeads, returnCallTiming'}.
 
 CRITICAL PRIORITY: The LAST user message is the most important. If it contradicts or rejects previous answers, DO NOT extract the old values.
 
@@ -1107,9 +1258,11 @@ EXTRACTION LOGIC:
 
 1. **Name Extraction:**
    - Extract ONLY when user explicitly states their name: "My name is X", "I'm X", "Call me X", "This is X"
+   - Extract from opening question response: "Who am I speaking with, and what company are you with?" → "I'm John" or "John" → name: "John"
    - DO NOT extract if name appears in: questions, chatbot's name ("Abby"), third person references
    - Example: "Can I try Abby?" → name: null (question + chatbot name)
    - Example: "My name is Ahmed" → name: "Ahmed" (declaration)
+   - Example: "I'm John from ABC Plumbing" → name: "John", company: "ABC Plumbing"
 
 2. **Email Extraction:**
    - Extract email addresses when user explicitly provides them
@@ -1127,7 +1280,45 @@ EXTRACTION LOGIC:
    - Example: "Call me" → phone: null (no phone provided)
    - Phone is OPTIONAL - only extract if explicitly provided
 
-4. **Service Need Extraction (Purpose/Reason for Contact):**
+${!isDemoMode ? `3a. **Company Extraction (Sales Agent Flow):**
+   - Extract when user mentions their company name: "I'm with X", "I work at X", "X company", "company name is X"
+   - Extract from opening question response: "Who am I speaking with, and what company are you with?" → extract company name
+   - Example: "I'm John from ABC Plumbing" → company: "ABC Plumbing"
+   - Example: "My company is XYZ Corp" → company: "XYZ Corp"
+
+3b. **Business Type Extraction (Sales Agent Discovery):**
+   - Extract when user answers "What does your business do?"
+   - Extract business type/industry: "We do plumbing", "I'm a plumber", "We're a dental practice", "We provide HVAC services"
+   - Example: "We do plumbing" → businessType: "plumbing"
+   - Example: "I'm a dentist" → businessType: "dental" or "dentistry"
+
+3c. **Customers Extraction (Sales Agent Discovery):**
+   - Extract when user answers "Who are your main customers?"
+   - Extract customer description: "Homeowners", "Small businesses", "Commercial clients", "Residential"
+   - Example: "Mostly homeowners" → customers: "homeowners"
+   - Example: "Small businesses and commercial" → customers: "small businesses and commercial"
+
+3d. **Pricing Tier Extraction (Sales Agent Discovery):**
+   - Extract when user answers "Are you more lower ticket or higher ticket?" or "What's your typical job size?"
+   - Extract pricing tier: "lower ticket", "higher ticket", "mid-range", or specific amounts
+   - Example: "Lower ticket, around $200-500" → pricingTier: "lower ticket"
+   - Example: "Higher ticket, $5000+" → pricingTier: "higher ticket"
+
+3e. **Biggest Problem Extraction (Sales Agent Discovery):**
+   - Extract when user answers "What's the biggest problem you're trying to solve right now?"
+   - Extract the problem description: "Missing leads", "Not enough qualified leads", "After-hours inquiries", "Lead response time"
+   - Example: "We miss a lot of leads after hours" → biggestProblem: "missing leads after hours"
+   - Example: "Not responding fast enough to inquiries" → biggestProblem: "slow response time to inquiries"
+
+3f. **"What brought you here today?" Response (Opening Transition):**
+   - This question is asked after name + company are collected
+   - Extract their reason/purpose: "I need help with leads", "Looking for a chatbot", "Want to capture more leads", "Missing leads after hours"
+   - This response can inform discovery questions (especially biggestProblem) OR serviceNeed
+   - Example: "I need help capturing leads after hours" → can extract as serviceNeed: "lead capture" and/or biggestProblem: "capturing leads after hours"
+   - Example: "Looking for a chatbot solution" → serviceNeed: "chatbot"
+   - This helps transition from opening to discovery phase
+
+` : ''}4. **Service Need Extraction (Purpose/Reason for Contact):**
    - Extract from DECLARATIVE statements: "I need X", "I want X", "I'm looking for X", "my business is X", "I'm in X", "I do X"
    - Extract business type/industry when mentioned: "my business is marketing" → serviceNeed: "marketing" or "lead generation for marketing"
    - Extract service descriptions: "I need help with leads", "I want chatbot", "I'm looking for website", "I need consultation"
@@ -1182,7 +1373,9 @@ EXTRACTION PRIORITY:
 - For serviceNeed (Purpose): Look at the FULL CONVERSATION. If the user mentioned their business type, industry, or what they need help with anywhere in the conversation, extract it. Examples: "my business is marketing", "I'm in marketing", "I need help with leads", "how you help me in leads" → extract "marketing" or "lead generation".
 - For timing and budget: Analyze the LAST user message first, but also check earlier messages if the last message doesn't contain the information.
 
-Return JSON: {"name": null or "value", "email": null or "value", "phone": null or "value", "serviceNeed": null or "value", "timing": null or "value", "budget": null or "value" or "unknown", "leadsPerDay": null or "value", "overnightLeads": null or "value", "returnCallTiming": null or "value"}`;
+Return JSON: ${isDemoMode 
+  ? '{"name": null or "value", "email": null or "value", "phone": null or "value", "serviceNeed": null or "value", "timing": null or "value", "budget": null or "value" or "unknown", "leadsPerDay": null or "value", "overnightLeads": null or "value", "returnCallTiming": null or "value"}'
+  : '{"name": null or "value", "company": null or "value", "email": null or "value", "phone": null or "value", "businessType": null or "value", "customers": null or "value", "pricingTier": null or "value", "biggestProblem": null or "value", "serviceNeed": null or "value", "timing": null or "value", "budget": null or "value" or "unknown", "leadsPerDay": null or "value", "overnightLeads": null or "value", "returnCallTiming": null or "value"}'}`;
 
       try {
         const extractionResponse = await this.openaiClient.chat.completions.create({
@@ -1205,11 +1398,25 @@ Return JSON: {"name": null or "value", "email": null or "value", "phone": null o
         const hasPhone = extractedData.phone && extractedData.phone !== 'null' && extractedData.phone.trim();
         const hasServiceNeed = extractedData.serviceNeed && extractedData.serviceNeed !== 'null' && extractedData.serviceNeed.trim();
         
+        // Sales agent fields (only for client websites, not demo mode)
+        const hasCompany = !isDemoMode && extractedData.company && extractedData.company !== 'null' && extractedData.company.trim();
+        const hasBusinessType = !isDemoMode && extractedData.businessType && extractedData.businessType !== 'null' && extractedData.businessType.trim();
+        const hasCustomers = !isDemoMode && extractedData.customers && extractedData.customers !== 'null' && extractedData.customers.trim();
+        const hasPricingTier = !isDemoMode && extractedData.pricingTier && extractedData.pricingTier !== 'null' && extractedData.pricingTier.trim();
+        const hasBiggestProblem = !isDemoMode && extractedData.biggestProblem && extractedData.biggestProblem !== 'null' && extractedData.biggestProblem.trim();
+        
         // Be STRICT - don't extract invalid/vague responses as valid answers
         const extractedName = hasName ? extractedData.name.trim() : null;
         const extractedEmail = hasEmail ? extractedData.email.trim() : null;
         const extractedPhone = hasPhone ? extractedData.phone.trim() : null;
         const extractedServiceNeed = hasServiceNeed ? extractedData.serviceNeed.trim() : null;
+        
+        // Sales agent fields
+        const extractedCompany = hasCompany ? extractedData.company.trim() : null;
+        const extractedBusinessType = hasBusinessType ? extractedData.businessType.trim() : null;
+        const extractedCustomers = hasCustomers ? extractedData.customers.trim() : null;
+        const extractedPricingTier = hasPricingTier ? extractedData.pricingTier.trim() : null;
+        const extractedBiggestProblem = hasBiggestProblem ? extractedData.biggestProblem.trim() : null;
         const extractedTiming = extractedData.timing && extractedData.timing !== 'null' ? extractedData.timing.trim() : null;
         // Handle budget - if "unknown", keep it as "unknown" (don't trim to lowercase)
         const extractedBudget = extractedData.budget && extractedData.budget !== 'null' 
@@ -1345,9 +1552,10 @@ Return JSON: {"name": null or "value", "email": null or "value", "phone": null o
         let lead = await this.leadService.getLeadBySessionId(sessionId);
         
         // If we have at least one valid piece of information OR we need to clear invalid values
-        // Also include qualified question answers
+        // Also include qualified question answers and sales agent fields
         if (isValidName || isValidEmail || isValidPhone || isValidServiceNeed || isValidTiming || isValidBudget || 
             extractedLeadsPerDay || extractedOvernightLeads || extractedReturnCallTiming ||
+            (!isDemoMode && (extractedCompany || extractedBusinessType || extractedCustomers || extractedPricingTier || extractedBiggestProblem)) ||
             (extractedEmail !== null && !isValidEmail) ||
             (extractedPhone !== null && !isValidPhone) ||
             (extractedServiceNeed !== null && !isValidServiceNeed) ||
@@ -1369,6 +1577,15 @@ Return JSON: {"name": null or "value", "email": null or "value", "phone": null o
           const currentBudget = lead?.budget;
           
           if (isValidName) leadData.name = extractedName;
+          
+          // Sales agent fields (only save if not demo mode)
+          if (!isDemoMode) {
+            if (extractedCompany) leadData.company = extractedCompany;
+            if (extractedBusinessType) leadData.businessType = extractedBusinessType;
+            if (extractedCustomers) leadData.customers = extractedCustomers;
+            if (extractedPricingTier) leadData.pricingTier = extractedPricingTier;
+            if (extractedBiggestProblem) leadData.biggestProblem = extractedBiggestProblem;
+          }
           
           // For email: Only save if valid format and not invalid
           if (extractedEmail !== null) {

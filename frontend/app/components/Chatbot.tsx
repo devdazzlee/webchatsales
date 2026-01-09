@@ -108,10 +108,13 @@ export default function Chatbot() {
       const data = await response.json();
       if (data.success) {
         setSessionId(data.sessionId);
-        // Auto-send greeting message - demo mode greeting for WebChatSales.com
+        // Auto-send greeting message - sales agent opening for client websites, demo for WebChatSales.com
+        const isDemoSite = typeof window !== 'undefined' && window.location.hostname.includes('webchatsales.com');
         const greetingMessage: Message = {
           id: '1',
-          text: 'Hey! I\'m Abby, the demo chatbot for WebChatSales. I\'m here to show you how WebChatSales works! WebChatSales helps businesses capture and qualify leads 24/7 with an AI chatbot like me. What would you like to know about WebChatSales?',
+          text: isDemoSite 
+            ? 'Hey! I\'m Abby, the demo chatbot for WebChatSales. I\'m here to show you how WebChatSales works! WebChatSales helps businesses capture and qualify leads 24/7 with an AI chatbot like me. What would you like to know about WebChatSales?'
+            : 'Hi — I\'m Abby from WebChatSales. Who am I speaking with, and what company are you with?',
           sender: 'abby',
           timestamp: new Date(),
         };

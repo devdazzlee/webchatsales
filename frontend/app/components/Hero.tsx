@@ -22,11 +22,10 @@ export default function Hero() {
   return (
     <section className="pt-32 pb-20 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
-        {/* Founder Special Banner */}
+        {/* Pricing Banner */}
         <div className="mb-8 p-4 rounded-lg text-center" style={{ background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(34, 197, 94, 0.1) 100%)', border: '2px solid var(--emerald)' }}>
           <p className="text-lg font-semibold" style={{ color: 'var(--emerald)' }}>
-            <span style={{ textDecoration: 'line-through', opacity: 0.6, marginRight: '8px' }}>$497</span>
-            <span style={{ fontWeight: 'bold' }}>$297</span> / month • Founder Special: First 20 spots • <span style={{ fontWeight: 'bold' }}>4 spots left</span>
+            <span style={{ fontWeight: 'bold' }}>$97</span> / month • <span style={{ fontWeight: 'bold' }}>30-day risk-free trial</span> • No card required to start
           </p>
         </div>
         

@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
 import { PromptBuilderService } from './prompt-builder.service';
+import { SalesAgentPromptService } from './sales-agent-prompt.service';
 import { Conversation, ConversationSchema } from '../../schemas/conversation.schema';
 import { LeadModule } from '../lead/lead.module';
 import { SupportModule } from '../support/support.module';
@@ -20,7 +21,7 @@ import { BookingModule } from '../booking/booking.module';
     BookingModule,
   ],
   controllers: [ChatController],
-  providers: [ChatService, PromptBuilderService],
+  providers: [ChatService, PromptBuilderService, SalesAgentPromptService],
   exports: [ChatService],
 })
 export class ChatModule {}
