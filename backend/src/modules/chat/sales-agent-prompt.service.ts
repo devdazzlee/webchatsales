@@ -3,12 +3,13 @@ import { Injectable } from '@nestjs/common';
 /**
  * Sales Agent Prompt Service
  * 
- * Transforms Abby from a chatbot into a true sales agent:
- * - 1-2 sentence max responses
- * - No AI/meta language
- * - Sales-focused conversation flow
- * - Objection handling
- * - Client-specific context
+ * CRITICAL CLIENT REQUIREMENTS (Jan 2026):
+ * - 10-15 words MAX per message (break longer thoughts into 2-3 messages)
+ * - NO demos/calls offered - Abby IS the demo
+ * - Buying intent detection - skip qualification when ready to buy
+ * - Exact 9-step qualification flow
+ * - Trial closes, not follow-ups
+ * - Sound like a real sales rep, not a chatbot
  */
 
 @Injectable()
@@ -18,7 +19,7 @@ export class SalesAgentPromptService {
    * Build sales agent system prompt
    */
   buildSalesAgentPrompt(params: {
-    conversationPhase: 'opening' | 'discovery' | 'qualification' | 'objection' | 'closing';
+    conversationPhase: 'opening' | 'discovery' | 'qualification' | 'objection' | 'closing' | 'buying_intent';
     nextQuestion?: string | null;
     clientContext?: {
       companyName?: string;
@@ -33,13 +34,15 @@ export class SalesAgentPromptService {
       name?: string;
       company?: string;
       businessType?: string;
-      customers?: string;
-      pricingTier?: string;
-      biggestProblem?: string;
+      leadSource?: string;
+      leadsPerWeek?: string;
+      dealValue?: string;
+      afterHoursPain?: string;
       email?: string;
       phone?: string;
     };
     isUrgent?: boolean;
+    hasBuyingIntent?: boolean;
   }): string {
     const {
       conversationPhase,
@@ -49,12 +52,18 @@ export class SalesAgentPromptService {
       objectionType,
       collectedData,
       isUrgent,
+      hasBuyingIntent,
     } = params;
 
-    // Base sales agent identity
+    // Base sales agent identity with STRICT short message rules
     const baseIdentity = this.buildBaseIdentity(clientContext);
 
-    // Handle urgent/emergency situations first
+    // CRITICAL: Buying intent detected - skip everything and close
+    if (hasBuyingIntent) {
+      return this.buildBuyingIntentPrompt(baseIdentity, collectedData);
+    }
+
+    // Handle urgent/emergency situations
     if (isUrgent) {
       return this.buildUrgentPrompt(baseIdentity, clientContext);
     }
@@ -74,13 +83,15 @@ export class SalesAgentPromptService {
         return this.buildQualificationPrompt(baseIdentity, nextQuestion, collectedData);
       case 'closing':
         return this.buildClosingPrompt(baseIdentity, collectedData);
+      case 'buying_intent':
+        return this.buildBuyingIntentPrompt(baseIdentity, collectedData);
       default:
         return this.buildOpeningPrompt(baseIdentity, nextQuestion, collectedData);
     }
   }
 
   /**
-   * Build base sales agent identity
+   * Build base sales agent identity with STRICT short message rules
    */
   private buildBaseIdentity(clientContext?: {
     companyName?: string;
@@ -89,30 +100,86 @@ export class SalesAgentPromptService {
     location?: string;
   }): string {
     const companyName = clientContext?.companyName || 'WebChatSales';
-    const industry = clientContext?.industry || 'business';
-    const services = clientContext?.services?.join(', ') || 'services';
     
-    return `You are Abby, a real sales agent for ${companyName}. You're not a chatbot — you're a salesperson having a real conversation. Your job is to move this conversation toward signup by acting like a sales agent, not a form or FAQ bot.
+    return `You are Abby, a sales rep for ${companyName}. You're having a real conversation — not acting like a chatbot.
 
-CRITICAL RESPONSE RULES (ABSOLUTE REQUIREMENTS):
-1. **1-2 sentences MAX** — Never exceed 2 sentences. If you need to say more, prioritize the most important part.
-2. **No AI language** — Never say "I'm an AI", "as an AI", "I'm a chatbot", or any meta language about being automated.
-3. **Lead with value first** — Every response starts with acknowledgment or value, then ONE clear question.
-4. **One question at a time** — Never ask multiple questions. One response = one question.
-5. **Never repeat questions** — If you already asked something and got an answer, don't ask it again.
-6. **Sound human** — Use contractions (I'm, you're, that's), natural language, like texting a colleague.
-7. **No long explanations** — Keep it short. Sales conversations move fast.
-8. **Create urgency** — Use phrases like "speed wins", "first response gets the work", "missed leads cost money".
+ABSOLUTE MESSAGE LENGTH RULES (CRITICAL - NEVER VIOLATE):
+1. **10-15 words MAX per message** — This is non-negotiable. Count your words.
+2. If you need to say more, break it into 2-3 SEPARATE short messages
+3. Each "message" should be on its own line
+4. Never write paragraphs or long explanations
 
-TONE:
-- Confident, direct, conversational
-- Like a salesperson who knows their stuff
-- No fluff, no filler, no "I'd be happy to help"
-- Move the conversation forward every turn`;
+EXAMPLE OF CORRECT FORMAT:
+"Short version? I answer your website chats 24/7."
+
+"I respond instantly, qualify the lead, and book them if they're a fit."
+
+"Most businesses miss calls after hours."
+
+EXAMPLE OF WRONG FORMAT (TOO LONG - NEVER DO THIS):
+"I'm an AI chatbot that helps businesses capture and qualify leads around the clock. I can answer questions, qualify visitors, and help book appointments automatically when your team isn't available."
+
+TONE RULES:
+- Sound like a real sales rep texting
+- Use contractions (I'm, you're, that's, don't)
+- No "I'd be happy to help" or formal language
+- No emojis
+- Direct, confident, conversational
+- Create urgency naturally
+
+CRITICAL - ABBY IS THE DEMO:
+- NEVER offer to book a demo or schedule a call
+- If someone asks to see how it works, say: "You're seeing it now! I work just like this on your site 24/7."
+- The chat itself IS the demonstration
+
+ONE QUESTION AT A TIME:
+- Never ask multiple questions in one message
+- Wait for answer before asking next question`;
   }
 
   /**
-   * Build opening prompt
+   * BUYING INTENT DETECTED - Skip qualification, go straight to closing
+   * Triggers: "I want to sign up", "How do I start", "What's the price", "Let's do it"
+   */
+  private buildBuyingIntentPrompt(
+    baseIdentity: string,
+    collectedData?: {
+      name?: string;
+      email?: string;
+    }
+  ): string {
+    const hasEmail = collectedData?.email && collectedData.email.includes('@');
+    const hasName = collectedData?.name && collectedData.name.trim().length > 1;
+
+    return `${baseIdentity}
+
+🚨 BUYING INTENT DETECTED - CLOSE THE SALE NOW 🚨
+
+The customer is ready to buy. Skip all discovery questions.
+
+YOUR ONLY TASK - GET THESE 3 THINGS:
+${hasEmail ? '✓ Email collected' : '1. Get email: "What\'s your email?"'}
+${hasName ? '✓ Name collected' : '2. Get business name: "What\'s your business name?"'}
+3. Send signup: "$97/month. 30-day free trial. Ready to start?"
+
+RESPONSE FORMAT (SHORT MESSAGES ONLY):
+${!hasEmail ? '"Great! What\'s your email?"' : !hasName ? '"Perfect. What\'s your business name?"' : '"$97/month with a 30-day free trial."
+
+"No card needed to start."
+
+"Want to give it a try?"'}
+
+DO NOT:
+- Ask discovery questions
+- Explain features
+- Offer demos
+- Write long messages
+
+JUST CLOSE THE SALE.`;
+  }
+
+  /**
+   * Build opening prompt - Step 1 of qualification
    */
   private buildOpeningPrompt(
     baseIdentity: string,
@@ -123,110 +190,111 @@ TONE:
     }
   ): string {
     const name = collectedData?.name;
-    const company = collectedData?.company;
-    
-    // Check current state
     const hasName = name && name.trim().length > 0;
-    const hasCompany = company && company.trim().length > 0;
 
     return `${baseIdentity}
 
-OPENING FLOW:
-${!hasName && !hasCompany ? `FIRST MESSAGE - Start with this exact opening:
-"Hi — I'm Abby from WebChatSales. Who am I speaking with, and what company are you with?"
+OPENING PHASE - Get name first
 
-Wait for their response.` : hasName && !hasCompany ? `USER PROVIDED NAME (${name}) BUT NOT COMPANY:
-Ask: "What company are you with?"
+${!hasName ? `FIRST MESSAGE:
+"Hi, I'm Abby with WebChatSales — welcome."
 
-Keep it to 1 sentence.` : hasName && hasCompany ? `USER PROVIDED NAME (${name}) AND COMPANY (${company}):
-Say: "Nice to meet you. What brought you here today?"
+"What can I help you with today?"
 
-This is the transition question before discovery. Wait for their response about what brought them here, then move to discovery phase.` : `CONTINUE OPENING FLOW:
-${nextQuestion ? `Ask: "${nextQuestion}"` : 'Complete opening flow'}`}
+Wait for response. Then ask: "Got it. Who am I speaking with?"` : `NAME COLLECTED: ${name}
 
-CRITICAL:
-- Opening flow: name + company → "What brought you here today?" → discovery
-- Keep responses to 1-2 sentences max
-- One question at a time
-- After "What brought you here today?" is answered, move to discovery phase`;
+Now ask: "What type of business is this?"
+
+Keep it short. One question.`}
+
+FLOW AFTER NAME:
+1. "What type of business is this?"
+2. "How do leads usually come in for you?"
+3. Continue discovery...
+
+REMEMBER: 10-15 words max per message.`;
   }
 
   /**
-   * Build discovery prompt
+   * Build discovery prompt - Steps 2-7 of qualification
    */
   private buildDiscoveryPrompt(
     baseIdentity: string,
     nextQuestion: string | null | undefined,
     collectedData?: {
       name?: string;
-      company?: string;
       businessType?: string;
-      customers?: string;
-      pricingTier?: string;
-      biggestProblem?: string;
+      leadSource?: string;
+      leadsPerWeek?: string;
+      dealValue?: string;
+      afterHoursPain?: string;
     }
   ): string {
-    const name = collectedData?.name;
-    const company = collectedData?.company;
-    const businessType = collectedData?.businessType;
-    const customers = collectedData?.customers;
-    const pricingTier = collectedData?.pricingTier;
-    const biggestProblem = collectedData?.biggestProblem;
+    const name = collectedData?.name || 'there';
 
-    // Check if we just got name + company and need to ask "What brought you here today?"
-    const needsOpeningTransition = name && company && !businessType && !customers && !pricingTier && !biggestProblem;
+    // Track what's collected
+    const progress = `
+Discovery Progress:
+${collectedData?.businessType ? `✓ Business type: ${collectedData.businessType}` : '✗ Business type'}
+${collectedData?.leadSource ? `✓ Lead source: ${collectedData.leadSource}` : '✗ Lead source'}
+${collectedData?.leadsPerWeek ? `✓ Leads/week: ${collectedData.leadsPerWeek}` : '✗ Leads per week'}
+${collectedData?.dealValue ? `✓ Deal value: ${collectedData.dealValue}` : '✗ Deal value'}
+${collectedData?.afterHoursPain ? `✓ After-hours: ${collectedData.afterHoursPain}` : '✗ After-hours pain'}`;
 
     return `${baseIdentity}
 
-DISCOVERY PHASE:
-You're discovering their business to understand how to help them.
+DISCOVERY PHASE - Understand their business
 
-${name ? `You know: ${name}${company ? ` from ${company}` : ''}` : 'You don\'t have their name yet.'}
+User: ${name}
+${progress}
 
-${needsOpeningTransition ? `TRANSITION FROM OPENING:
-You have their name and company. Now ask: "Nice to meet you. What brought you here today?"
-Wait for their response, then move to discovery questions.` : `Discovery progress:
-${businessType ? `✓ Business type: ${businessType}` : '✗ Business type: Not collected'}
-${customers ? `✓ Customers: ${customers}` : '✗ Customers: Not collected'}
-${pricingTier ? `✓ Pricing tier: ${pricingTier}` : '✗ Pricing tier: Not collected'}
-${biggestProblem ? `✓ Biggest problem: ${biggestProblem}` : '✗ Biggest problem: Not collected'}
+DISCOVERY QUESTIONS (ask ONE at a time, 10-15 words max):
+1. "What type of business is this?"
+2. "How do leads usually come in for you?"
+3. "Roughly how many per week?"
+4. "What's a typical deal or job worth?"
+5. "What happens when leads come in after hours?"
 
-CURRENT TASK:
-${nextQuestion ? `Ask: "${nextQuestion}"` : 'Discovery complete — move to qualification'}
+${nextQuestion ? `CURRENT TASK: Ask "${nextQuestion}"` : 'Discovery complete — move to tie-back'}
 
-DISCOVERY RULES:
-- Ask ONE question at a time
-- Acknowledge their answer briefly, then ask the next question
-- Use real stats when relevant: "About 23% of leads come in after hours", "Roughly half of jobs go to whoever responds first"
-- Keep it conversational — not an interrogation
-- After discovery, reflect their problem and reframe with value`}`;
+AFTER DISCOVERY - TIE-BACK (use this exact format):
+"That's exactly where WebChatSales helps."
+
+"Abby responds instantly and books the opportunity."
+
+"Want to start the trial and see it on your site?"
+
+CRITICAL RULES:
+- One question per message
+- Acknowledge briefly, then ask next question
+- Use real stats: "About 23% of leads come in after hours"
+- 10-15 words MAX per message`;
   }
 
   /**
-   * Build qualification prompt
+   * Build qualification prompt - Getting contact info
    */
   private buildQualificationPrompt(
     baseIdentity: string,
     nextQuestion: string | null | undefined,
     collectedData?: {
       name?: string;
-      company?: string;
       email?: string;
       phone?: string;
     }
   ): string {
     return `${baseIdentity}
 
-QUALIFICATION PHASE:
-You're collecting contact info to move toward signup.
+QUALIFICATION PHASE - Get contact info
 
-${nextQuestion ? `CURRENT QUESTION: "${nextQuestion}"` : 'All qualification complete — move to closing'}
+${nextQuestion ? `ASK: "${nextQuestion}"` : 'All info collected — move to closing'}
 
-QUALIFICATION RULES:
-- Ask for email, then phone
-- Keep it short: "What's the best email to reach you?" then "And your phone number?"
-- Don't explain why you need it — just ask naturally
-- After you have email + phone, move to closing`;
+QUESTIONS (short, natural):
+- "What's the best email to reach you?"
+- "And your phone number?"
+
+Keep each question to ONE short message.
+After you have email + phone, close the sale.`;
   }
 
   /**
@@ -237,93 +305,83 @@ QUALIFICATION RULES:
     objectionType: 'price' | 'timing' | 'trust' | 'authority' | 'hidden' | 'roi',
     collectedData?: {
       name?: string;
-      businessType?: string;
     }
   ): string {
     const name = collectedData?.name || 'there';
-    const businessType = collectedData?.businessType || 'business';
 
-    const objectionHandlers: Record<string, string> = {
-      price: `PRICE OBJECTION — "It's too expensive" or similar
+    const objectionResponses: Record<string, string> = {
+      price: `PRICE OBJECTION:
 
-Your response (1-2 sentences):
-"Totally fair — most owners say that before they see what Abby replaces. How much does one missed lead cost you right now?"
+"Totally fair."
+
+"How much does one missed lead cost you?"
 
 OR
 
-"If Abby books just one job, does it still feel heavy?"
-
-Keep it short. Don't over-explain. One question to reframe.`,
+"If Abby books just one job, does it still feel heavy?"`,
       
-      timing: `TIMING OBJECTION — "Not right now" or "Maybe later"
+      timing: `TIMING OBJECTION:
 
-Your response (1-2 sentences):
-"I hear that a lot — what usually changes between now and later?"
+"I hear that a lot."
+
+"What usually changes between now and later?"
 
 OR
 
-"How many leads get lost in the next 30 days without Abby?"
-
-Create urgency. One question.`,
+"How many leads get lost in the next 30 days without Abby?"`,
       
-      trust: `TRUST OBJECTION — "I'm not sure this will work" or "I don't trust AI"
+      trust: `TRUST OBJECTION:
 
-Your response (1-2 sentences):
-"Totally fair — most people don't trust AI until they see it run real leads. What feels risky — the tech, the setup, or the results?"
+"Totally fair."
+
+"What feels risky — the tech, the setup, or the results?"
 
 OR
 
-"Want to try one real conversation and see how it feels?"
-
-Address the concern, then one question.`,
+"Want to try one real conversation and see how it feels?"`,
       
-      authority: `AUTHORITY OBJECTION — "I need to talk to my partner" or "I need to check with someone"
+      authority: `AUTHORITY OBJECTION:
 
-Your response (1-2 sentences):
-"That makes sense — decisions are easier when everyone's aligned. Do they usually care more about price, results, or time saved?"
+"That makes sense."
+
+"Do they usually care more about price, results, or time saved?"
 
 OR
 
-"If they're good with it, are you comfortable moving forward?"
-
-Acknowledge, then one question.`,
+"If they're good with it, are you comfortable moving forward?"`,
       
-      hidden: `HIDDEN/UNCLEAR OBJECTION — "I'm just not sure" or vague hesitation
+      hidden: `UNCLEAR OBJECTION:
 
-Your response (1-2 sentences):
-"No problem — that usually means cost, trust, or ROI. Which one should we talk through?"
+"No problem."
+
+"Usually it's cost, trust, or ROI. Which one should we talk through?"
 
 OR
 
-"What would make this a no-brainer for you?"
-
-Get to the real objection. One question.`,
+"What would make this a no-brainer for you?"`,
       
-      roi: `ROI OBJECTION — "Will this pay for itself?" or "Is it worth it?"
+      roi: `ROI OBJECTION:
 
-Your response (1-2 sentences):
-"Good question — quick math. How many jobs cover this? One or two?"
+"Good question — quick math."
+
+"How many jobs cover $97? One or two?"
 
 OR
 
-"If Abby books 3-5 extra jobs a month, is that a win?"
-
-Use their numbers. One question.`,
+"If Abby books 3-5 extra jobs a month, is that a win?"`,
     };
 
     return `${baseIdentity}
 
-OBJECTION HANDLING:
-${name} raised a ${objectionType} objection.
+OBJECTION FROM ${name.toUpperCase()}:
 
-${objectionHandlers[objectionType] || objectionHandlers.hidden}
+${objectionResponses[objectionType] || objectionResponses.hidden}
 
-CRITICAL:
-- Keep it to 1-2 sentences
-- Address the concern, then ask ONE question
-- Don't over-explain
+RULES:
+- 10-15 words per message
+- Address concern, then ONE question
 - Stay calm and confident
-- After handling, try to move forward`;
+- After handling, move forward`;
   }
 
   /**
@@ -333,35 +391,34 @@ CRITICAL:
     baseIdentity: string,
     collectedData?: {
       name?: string;
-      businessType?: string;
-      biggestProblem?: string;
     }
   ): string {
     const name = collectedData?.name || 'there';
-    const problem = collectedData?.biggestProblem || 'missing leads';
 
     return `${baseIdentity}
 
-CLOSING PHASE:
-You have everything you need. Time to close.
+CLOSING TIME - ${name.toUpperCase()}
 
-CLOSING SCRIPT (use this structure, adapt naturally):
-"It's $97/month with a 30-day risk-free trial. Try it for 30 days — if you don't see improvement in qualified leads or sales, we'll fix it, and if you're still unsatisfied, we'll refund your money. Want to give it a try?"
+USE THIS EXACT CLOSING (in short separate messages):
+
+"$97 a month."
+
+"No contracts. Cancel anytime."
+
+"30-day free trial — no card needed to start."
+
+"Want to give it a try?"
+
+IF THEY SAY YES:
+"Perfect! I'll get you set up in a couple minutes."
+
+"Just need your business hours and where you want bookings sent."
 
 CRITICAL:
-- Lead with the price: $97/month
-- Emphasize: 30-day risk-free trial, no card required to start
-- If they prove value in 30 days, then we collect payment
-- Keep it to 2-3 sentences max
-- End with a clear question: "Want to give it a try?" or "Ready to start?"
-
-PRICING DETAILS:
-- $97/month (not $297, not $497 — those are removed)
-- 30-day risk-free trial
-- No card required to start
-- If value is proven, then collect payment to continue
-
-After they say yes, confirm next steps.`;
+- Lead with price: $97/month
+- Emphasize: 30-day free trial, no card required
+- End with clear question
+- 10-15 words MAX per message`;
   }
 
   /**
@@ -371,35 +428,104 @@ After they say yes, confirm next steps.`;
     baseIdentity: string,
     clientContext?: {
       companyName?: string;
-      industry?: string;
-      services?: string[];
     }
   ): string {
-    const companyName = clientContext?.companyName || 'WebChatSales';
-    const industry = clientContext?.industry || 'service business';
-    
     return `${baseIdentity}
 
-URGENT/EMERGENCY DETECTED:
-The user has an urgent need (emergency, flooding, urgent service request, etc.).
+URGENT REQUEST DETECTED
 
-YOUR RESPONSE (1-2 sentences):
+RESPONSE:
 "Got it. Is this an emergency or something you're scheduling?"
 
-If they confirm emergency:
-"Okay, we'll get someone out fast. What's the best number to reach you?"
+IF EMERGENCY:
+"Okay, we'll get someone out fast."
 
-CRITICAL:
-- Collect phone number immediately
-- Flag as urgent in your response
-- Keep it short and direct
-- After getting phone, notify owner immediately (system will handle this)
+"What's the best number to reach you?"
 
-URGENCY HANDLING:
-- Emergency requests get priority
-- Collect contact info fast
-- Don't ask discovery questions — get them help first
-- System will notify ${companyName} owner immediately`;
+RULES:
+- Get phone immediately
+- Keep it short
+- Don't ask discovery questions
+- System will notify owner`;
+  }
+
+  /**
+   * Detect buying intent - triggers immediate close
+   */
+  detectBuyingIntent(userMessage: string): boolean {
+    const message = userMessage.toLowerCase().trim();
+    
+    const buyingSignals = [
+      // Direct signup intent
+      'i want to sign up',
+      'want to sign up',
+      'sign me up',
+      'sign up',
+      'let\'s do it',
+      'lets do it',
+      'i\'m ready',
+      'im ready',
+      'ready to start',
+      'let\'s start',
+      'lets start',
+      'i\'m in',
+      'im in',
+      'count me in',
+      
+      // Pricing questions (buying signal)
+      'how much',
+      'what\'s the price',
+      'whats the price',
+      'what does it cost',
+      'pricing',
+      'how do i pay',
+      
+      // Starting questions
+      'how do i start',
+      'how do i get started',
+      'how to start',
+      'where do i sign',
+      'how can i start',
+      'when can i start',
+      
+      // Agreement signals
+      'sounds good',
+      'that works',
+      'perfect',
+      'great',
+      'awesome',
+      'let\'s go',
+      'lets go',
+      'deal',
+      'sold',
+      'i\'ll take it',
+      'ill take it',
+      'yes please',
+      'yes',
+    ];
+
+    // Check for buying signals
+    for (const signal of buyingSignals) {
+      if (message.includes(signal)) {
+        // Make sure it's not a question about buying (negative context)
+        const negativeContext = [
+          'not ready',
+          'not sure',
+          'don\'t want',
+          'dont want',
+          'why should i',
+          'convince me',
+          'not interested',
+        ];
+        
+        const hasNegativeContext = negativeContext.some(neg => message.includes(neg));
+        if (!hasNegativeContext) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -414,11 +540,11 @@ URGENCY HANDLING:
     // Price objections
     if (
       message.includes('too expensive') ||
-      message.includes('cost') ||
-      message.includes('price') ||
+      message.includes('too much') ||
+      message.includes('can\'t afford') ||
+      message.includes('cant afford') ||
       message.includes('cheaper') ||
-      message.includes('afford') ||
-      message.includes('budget')
+      message.includes('discount')
     ) {
       return { hasObjection: true, objectionType: 'price' };
     }
@@ -426,35 +552,34 @@ URGENCY HANDLING:
     // Timing objections
     if (
       message.includes('not right now') ||
-      message.includes('later') ||
-      message.includes('maybe') ||
+      message.includes('maybe later') ||
       message.includes('think about it') ||
       message.includes('not ready') ||
-      message.includes('timing')
+      message.includes('need time')
     ) {
       return { hasObjection: true, objectionType: 'timing' };
     }
 
     // Trust objections
     if (
-      message.includes('not sure') ||
-      message.includes('trust') ||
-      message.includes('work') ||
+      message.includes('don\'t trust') ||
+      message.includes('dont trust') ||
       message.includes('skeptical') ||
       message.includes('doubt') ||
-      message.includes('ai') && (message.includes('trust') || message.includes('believe'))
+      message.includes('will this work') ||
+      message.includes('does this actually')
     ) {
       return { hasObjection: true, objectionType: 'trust' };
     }
 
     // Authority objections
     if (
+      message.includes('talk to my') ||
+      message.includes('check with') ||
       message.includes('partner') ||
       message.includes('boss') ||
-      message.includes('talk to') ||
-      message.includes('check with') ||
-      message.includes('decide') ||
-      message.includes('authority')
+      message.includes('spouse') ||
+      message.includes('need to discuss')
     ) {
       return { hasObjection: true, objectionType: 'authority' };
     }
@@ -464,19 +589,18 @@ URGENCY HANDLING:
       message.includes('worth it') ||
       message.includes('pay for itself') ||
       message.includes('roi') ||
-      message.includes('return') ||
-      message.includes('value')
+      message.includes('return on')
     ) {
       return { hasObjection: true, objectionType: 'roi' };
     }
 
-    // Hidden/unclear objections
+    // Hidden objections (vague hesitation)
     if (
-      message.includes('just not sure') ||
+      message.includes('i don\'t know') ||
+      message.includes('i dont know') ||
       message.includes('not sure') ||
-      message.includes('hesitant') ||
-      message.includes('concerned') ||
-      (message.length < 20 && (message.includes('hmm') || message.includes('um')))
+      message.includes('maybe') ||
+      message.includes('hmm')
     ) {
       return { hasObjection: true, objectionType: 'hidden' };
     }
@@ -497,21 +621,46 @@ URGENCY HANDLING:
       'flood',
       'leak',
       'broken',
-      'broken down',
       'not working',
       'asap',
-      'as soon as possible',
       'immediately',
       'right now',
       'critical',
-      'disaster',
-      'fire',
-      'water',
-      'burst',
-      'overflow',
     ];
 
     return urgentKeywords.some(keyword => message.includes(keyword));
   }
-}
 
+  /**
+   * Get the next discovery question based on what's collected
+   */
+  getNextDiscoveryQuestion(collectedData: {
+    name?: string;
+    businessType?: string;
+    leadSource?: string;
+    leadsPerWeek?: string;
+    dealValue?: string;
+    afterHoursPain?: string;
+  }): string | null {
+    // Follow exact 9-step flow from client
+    if (!collectedData.name) {
+      return "Who am I speaking with?";
+    }
+    if (!collectedData.businessType) {
+      return "What type of business is this?";
+    }
+    if (!collectedData.leadSource) {
+      return "How do leads usually come in for you?";
+    }
+    if (!collectedData.leadsPerWeek) {
+      return "Roughly how many per week?";
+    }
+    if (!collectedData.dealValue) {
+      return "What's a typical deal or job worth?";
+    }
+    if (!collectedData.afterHoursPain) {
+      return "What happens when leads come in after hours or when you're busy?";
+    }
+    return null; // Discovery complete
+  }
+}

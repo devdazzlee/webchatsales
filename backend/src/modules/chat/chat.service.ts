@@ -174,35 +174,47 @@ export class ChatService {
   }
 
   /**
-   * Get next sales agent discovery question (new flow)
-   * Opening: name + company → "What brought you here today?" → discovery questions
+   * Get next sales agent discovery question (NEW 9-STEP FLOW - Jan 2026)
+   * 1. Name - "Who am I speaking with?"
+   * 2. Business type - "What type of business is this?"
+   * 3. Lead source - "How do leads usually come in for you?"
+   * 4. Leads per week - "Roughly how many per week?"
+   * 5. Deal value - "What's a typical deal or job worth?"
+   * 6. After-hours pain - "What happens when leads come in after hours?"
+   * 7. [Tie-back] - Automatic transition, not a question
    */
   private getNextSalesAgentDiscoveryQuestion(existingLead: any): string | null {
-    // Opening flow: name + company first (handled by opening phase)
-    // After name + company, ask "What brought you here today?" (handled by opening phase after they answer)
-    // Then discovery: businessType → customers → pricingTier → biggestProblem
+    // Step 2: Business type
     if (!existingLead?.businessType) {
-      return "What does your business do?";
+      return "What type of business is this?";
     }
-    if (!existingLead?.customers) {
-      return "Who are your main customers?";
+    // Step 3: Lead source
+    if (!existingLead?.leadSource) {
+      return "How do leads usually come in for you?";
     }
-    if (!existingLead?.pricingTier) {
-      return "Are you more lower ticket or higher ticket?";
+    // Step 4: Leads per week
+    if (!existingLead?.leadsPerWeek) {
+      return "Roughly how many per week?";
     }
-    if (!existingLead?.biggestProblem) {
-      return "What's the biggest problem you're trying to solve right now?";
+    // Step 5: Deal value
+    if (!existingLead?.dealValue) {
+      return "What's a typical deal or job worth?";
     }
-    return null; // Discovery complete
+    // Step 6: After-hours pain
+    if (!existingLead?.afterHoursPain) {
+      return "What happens when leads come in after hours or when you're busy?";
+    }
+    return null; // Discovery complete - ready for tie-back and closing
   }
 
   /**
    * Get next sales agent qualification question (after discovery)
+   * Only collect email + business name when closing
    */
   private getNextSalesAgentQualificationQuestion(existingLead: any): string | null {
-    // Sales agent qualification: email → phone
+    // Sales agent qualification: email → phone (for closing)
     if (!existingLead?.email) {
-      return "What's the best email to reach you?";
+      return "What's your email?";
     }
     if (!existingLead?.phone) {
       return "And your phone number?";
@@ -704,24 +716,47 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       }
     }
     
+    // CRITICAL: Detect buying intent FIRST - skip qualification if ready to buy
+    const hasBuyingIntent = !isDemoMode ? this.salesAgentPrompt.detectBuyingIntent(userMessage) : false;
+    
+    if (hasBuyingIntent) {
+      console.log(`[ChatService] 🚀 BUYING INTENT DETECTED for ${sessionId}: "${userMessage.substring(0, 50)}..."`);
+      // Update lead to mark buying intent
+      if (lead) {
+        await this.leadService.updateLead(sessionId, { hasBuyingIntent: true });
+      }
+    }
+    
     // Detect objections
     const objectionDetection = !isDemoMode ? this.salesAgentPrompt.detectObjection(userMessage) : { hasObjection: false };
     const hasObjection = objectionDetection.hasObjection;
     const objectionType = objectionDetection.objectionType;
 
     // Determine conversation phase for sales agent mode
-    let conversationPhase: 'opening' | 'discovery' | 'qualification' | 'objection' | 'closing' = 'opening';
-    if (hasObjection) {
+    // NEW FLOW (Jan 2026): 
+    // 1. Opening: Get name
+    // 2. Discovery: businessType, leadSource, leadsPerWeek, dealValue, afterHoursPain
+    // 3. Tie-back (part of discovery completion)
+    // 4. Closing: email, business name, signup
+    // BUYING INTENT: Skip everything and go straight to closing
+    let conversationPhase: 'opening' | 'discovery' | 'qualification' | 'objection' | 'closing' | 'buying_intent' = 'opening';
+    
+    if (hasBuyingIntent) {
+      // BUYING INTENT - Skip all qualification, go straight to close
+      conversationPhase = 'buying_intent';
+    } else if (hasObjection) {
       conversationPhase = 'objection';
-    } else if (!lead?.name || !lead?.company) {
+    } else if (!lead?.name) {
       conversationPhase = 'opening';
-    } else if (!lead?.businessType || !lead?.customers || !lead?.pricingTier || !lead?.biggestProblem) {
+    } else if (!lead?.businessType || !lead?.leadSource || !lead?.leadsPerWeek || !lead?.dealValue || !lead?.afterHoursPain) {
       conversationPhase = 'discovery';
     } else if (!lead?.email || !lead?.phone) {
       conversationPhase = 'qualification';
     } else {
       conversationPhase = 'closing';
     }
+    
+    console.log(`[ChatService] Conversation phase for ${sessionId}: ${conversationPhase}`);
 
     // Determine if we're in discovery or qualification phase (for legacy system)
     const isDiscoveryPhase = !discoveryPhase.isComplete;
@@ -757,9 +792,19 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       });
     } else {
       // Client website - use Sales Agent prompt system
+      // Get next discovery question using new flow
+      const salesAgentNextQuestion = this.salesAgentPrompt.getNextDiscoveryQuestion({
+        name: lead?.name,
+        businessType: lead?.businessType,
+        leadSource: lead?.leadSource,
+        leadsPerWeek: lead?.leadsPerWeek,
+        dealValue: lead?.dealValue,
+        afterHoursPain: lead?.afterHoursPain,
+      });
+      
       systemPrompt = this.salesAgentPrompt.buildSalesAgentPrompt({
         conversationPhase,
-        nextQuestion: nextQuestion || undefined,
+        nextQuestion: salesAgentNextQuestion || nextQuestion || undefined,
         clientContext: {
           // TODO: Load from client intake form / database
           companyName: process.env.CLIENT_COMPANY_NAME,
@@ -774,13 +819,15 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
           name: lead?.name,
           company: lead?.company,
           businessType: lead?.businessType,
-          customers: lead?.customers,
-          pricingTier: lead?.pricingTier,
-          biggestProblem: lead?.biggestProblem,
+          leadSource: lead?.leadSource,
+          leadsPerWeek: lead?.leadsPerWeek,
+          dealValue: lead?.dealValue,
+          afterHoursPain: lead?.afterHoursPain,
           email: lead?.email,
           phone: lead?.phone,
         },
         isUrgent,
+        hasBuyingIntent,
       });
     }
 
@@ -1250,7 +1297,7 @@ Respond with JSON: {"summary": "brief summary text"}`;
       
       const extractionPrompt = `You are a lead qualification data extractor. Extract these fields: ${isDemoMode 
         ? 'name, email, phone, serviceNeed, timing, budget, leadsPerDay, overnightLeads, returnCallTiming'
-        : 'name, company, email, phone, businessType, customers, pricingTier, biggestProblem, serviceNeed, timing, budget, leadsPerDay, overnightLeads, returnCallTiming'}.
+        : 'name, company, email, phone, businessType, leadSource, leadsPerWeek, dealValue, afterHoursPain, serviceNeed, timing, budget, leadsPerDay, overnightLeads, returnCallTiming'}.
 
 CRITICAL PRIORITY: The LAST user message is the most important. If it contradicts or rejects previous answers, DO NOT extract the old values.
 
@@ -1282,41 +1329,38 @@ EXTRACTION LOGIC:
 
 ${!isDemoMode ? `3a. **Company Extraction (Sales Agent Flow):**
    - Extract when user mentions their company name: "I'm with X", "I work at X", "X company", "company name is X"
-   - Extract from opening question response: "Who am I speaking with, and what company are you with?" → extract company name
    - Example: "I'm John from ABC Plumbing" → company: "ABC Plumbing"
    - Example: "My company is XYZ Corp" → company: "XYZ Corp"
 
-3b. **Business Type Extraction (Sales Agent Discovery):**
-   - Extract when user answers "What does your business do?"
-   - Extract business type/industry: "We do plumbing", "I'm a plumber", "We're a dental practice", "We provide HVAC services"
-   - Example: "We do plumbing" → businessType: "plumbing"
-   - Example: "I'm a dentist" → businessType: "dental" or "dentistry"
+3b. **Business Type Extraction (NEW 9-STEP FLOW - Step 2):**
+   - Extract when user answers "What type of business is this?"
+   - Extract business type/industry: "Plumbing", "HVAC", "Dental", "Law firm", "Marketing agency"
+   - Example: "We're a plumbing company" → businessType: "plumbing"
+   - Example: "I run a dental practice" → businessType: "dental"
 
-3c. **Customers Extraction (Sales Agent Discovery):**
-   - Extract when user answers "Who are your main customers?"
-   - Extract customer description: "Homeowners", "Small businesses", "Commercial clients", "Residential"
-   - Example: "Mostly homeowners" → customers: "homeowners"
-   - Example: "Small businesses and commercial" → customers: "small businesses and commercial"
+3c. **Lead Source Extraction (NEW 9-STEP FLOW - Step 3):**
+   - Extract when user answers "How do leads usually come in for you?"
+   - Extract lead source description: "Website", "Phone calls", "Referrals", "Google", "Facebook ads"
+   - Example: "Mostly from our website and Google" → leadSource: "website and Google"
+   - Example: "Phone calls and referrals" → leadSource: "phone calls and referrals"
 
-3d. **Pricing Tier Extraction (Sales Agent Discovery):**
-   - Extract when user answers "Are you more lower ticket or higher ticket?" or "What's your typical job size?"
-   - Extract pricing tier: "lower ticket", "higher ticket", "mid-range", or specific amounts
-   - Example: "Lower ticket, around $200-500" → pricingTier: "lower ticket"
-   - Example: "Higher ticket, $5000+" → pricingTier: "higher ticket"
+3d. **Leads Per Week Extraction (NEW 9-STEP FLOW - Step 4):**
+   - Extract when user answers "Roughly how many per week?"
+   - Extract the number or description: "10-15", "About 20", "Maybe 5-10"
+   - Example: "Probably 15-20 per week" → leadsPerWeek: "15-20"
+   - Example: "Not many, maybe 5" → leadsPerWeek: "about 5"
 
-3e. **Biggest Problem Extraction (Sales Agent Discovery):**
-   - Extract when user answers "What's the biggest problem you're trying to solve right now?"
-   - Extract the problem description: "Missing leads", "Not enough qualified leads", "After-hours inquiries", "Lead response time"
-   - Example: "We miss a lot of leads after hours" → biggestProblem: "missing leads after hours"
-   - Example: "Not responding fast enough to inquiries" → biggestProblem: "slow response time to inquiries"
+3e. **Deal Value Extraction (NEW 9-STEP FLOW - Step 5):**
+   - Extract when user answers "What's a typical deal or job worth?"
+   - Extract the dollar amount or range: "$500", "$2000-5000", "A few hundred"
+   - Example: "Average job is about $1500" → dealValue: "$1500"
+   - Example: "Anywhere from $500 to $3000" → dealValue: "$500-3000"
 
-3f. **"What brought you here today?" Response (Opening Transition):**
-   - This question is asked after name + company are collected
-   - Extract their reason/purpose: "I need help with leads", "Looking for a chatbot", "Want to capture more leads", "Missing leads after hours"
-   - This response can inform discovery questions (especially biggestProblem) OR serviceNeed
-   - Example: "I need help capturing leads after hours" → can extract as serviceNeed: "lead capture" and/or biggestProblem: "capturing leads after hours"
-   - Example: "Looking for a chatbot solution" → serviceNeed: "chatbot"
-   - This helps transition from opening to discovery phase
+3f. **After-Hours Pain Extraction (NEW 9-STEP FLOW - Step 6):**
+   - Extract when user answers "What happens when leads come in after hours or when you're busy?"
+   - Extract the pain point description: "We miss them", "Go to voicemail", "Nobody answers"
+   - Example: "They usually go to voicemail and we lose them" → afterHoursPain: "go to voicemail, lose leads"
+   - Example: "We try to call back but often too late" → afterHoursPain: "call back too late"
 
 ` : ''}4. **Service Need Extraction (Purpose/Reason for Contact):**
    - Extract from DECLARATIVE statements: "I need X", "I want X", "I'm looking for X", "my business is X", "I'm in X", "I do X"
@@ -1375,7 +1419,7 @@ EXTRACTION PRIORITY:
 
 Return JSON: ${isDemoMode 
   ? '{"name": null or "value", "email": null or "value", "phone": null or "value", "serviceNeed": null or "value", "timing": null or "value", "budget": null or "value" or "unknown", "leadsPerDay": null or "value", "overnightLeads": null or "value", "returnCallTiming": null or "value"}'
-  : '{"name": null or "value", "company": null or "value", "email": null or "value", "phone": null or "value", "businessType": null or "value", "customers": null or "value", "pricingTier": null or "value", "biggestProblem": null or "value", "serviceNeed": null or "value", "timing": null or "value", "budget": null or "value" or "unknown", "leadsPerDay": null or "value", "overnightLeads": null or "value", "returnCallTiming": null or "value"}'}`;
+  : '{"name": null or "value", "company": null or "value", "email": null or "value", "phone": null or "value", "businessType": null or "value", "leadSource": null or "value", "leadsPerWeek": null or "value", "dealValue": null or "value", "afterHoursPain": null or "value", "serviceNeed": null or "value", "timing": null or "value", "budget": null or "value" or "unknown", "leadsPerDay": null or "value", "overnightLeads": null or "value", "returnCallTiming": null or "value"}'}`;
 
       try {
         const extractionResponse = await this.openaiClient.chat.completions.create({
@@ -1398,9 +1442,14 @@ Return JSON: ${isDemoMode
         const hasPhone = extractedData.phone && extractedData.phone !== 'null' && extractedData.phone.trim();
         const hasServiceNeed = extractedData.serviceNeed && extractedData.serviceNeed !== 'null' && extractedData.serviceNeed.trim();
         
-        // Sales agent fields (only for client websites, not demo mode)
+        // Sales agent fields (NEW 9-STEP FLOW - only for client websites, not demo mode)
         const hasCompany = !isDemoMode && extractedData.company && extractedData.company !== 'null' && extractedData.company.trim();
         const hasBusinessType = !isDemoMode && extractedData.businessType && extractedData.businessType !== 'null' && extractedData.businessType.trim();
+        const hasLeadSource = !isDemoMode && extractedData.leadSource && extractedData.leadSource !== 'null' && extractedData.leadSource.trim();
+        const hasLeadsPerWeek = !isDemoMode && extractedData.leadsPerWeek && extractedData.leadsPerWeek !== 'null' && extractedData.leadsPerWeek.trim();
+        const hasDealValue = !isDemoMode && extractedData.dealValue && extractedData.dealValue !== 'null' && extractedData.dealValue.trim();
+        const hasAfterHoursPain = !isDemoMode && extractedData.afterHoursPain && extractedData.afterHoursPain !== 'null' && extractedData.afterHoursPain.trim();
+        // Legacy fields (kept for backward compatibility)
         const hasCustomers = !isDemoMode && extractedData.customers && extractedData.customers !== 'null' && extractedData.customers.trim();
         const hasPricingTier = !isDemoMode && extractedData.pricingTier && extractedData.pricingTier !== 'null' && extractedData.pricingTier.trim();
         const hasBiggestProblem = !isDemoMode && extractedData.biggestProblem && extractedData.biggestProblem !== 'null' && extractedData.biggestProblem.trim();
@@ -1411,9 +1460,14 @@ Return JSON: ${isDemoMode
         const extractedPhone = hasPhone ? extractedData.phone.trim() : null;
         const extractedServiceNeed = hasServiceNeed ? extractedData.serviceNeed.trim() : null;
         
-        // Sales agent fields
+        // Sales agent fields (NEW 9-STEP FLOW)
         const extractedCompany = hasCompany ? extractedData.company.trim() : null;
         const extractedBusinessType = hasBusinessType ? extractedData.businessType.trim() : null;
+        const extractedLeadSource = hasLeadSource ? extractedData.leadSource.trim() : null;
+        const extractedLeadsPerWeek = hasLeadsPerWeek ? extractedData.leadsPerWeek.trim() : null;
+        const extractedDealValue = hasDealValue ? extractedData.dealValue.trim() : null;
+        const extractedAfterHoursPain = hasAfterHoursPain ? extractedData.afterHoursPain.trim() : null;
+        // Legacy fields
         const extractedCustomers = hasCustomers ? extractedData.customers.trim() : null;
         const extractedPricingTier = hasPricingTier ? extractedData.pricingTier.trim() : null;
         const extractedBiggestProblem = hasBiggestProblem ? extractedData.biggestProblem.trim() : null;
@@ -1552,10 +1606,10 @@ Return JSON: ${isDemoMode
         let lead = await this.leadService.getLeadBySessionId(sessionId);
         
         // If we have at least one valid piece of information OR we need to clear invalid values
-        // Also include qualified question answers and sales agent fields
+        // Also include qualified question answers and sales agent fields (NEW 9-STEP FLOW)
         if (isValidName || isValidEmail || isValidPhone || isValidServiceNeed || isValidTiming || isValidBudget || 
             extractedLeadsPerDay || extractedOvernightLeads || extractedReturnCallTiming ||
-            (!isDemoMode && (extractedCompany || extractedBusinessType || extractedCustomers || extractedPricingTier || extractedBiggestProblem)) ||
+            (!isDemoMode && (extractedCompany || extractedBusinessType || extractedLeadSource || extractedLeadsPerWeek || extractedDealValue || extractedAfterHoursPain || extractedCustomers || extractedPricingTier || extractedBiggestProblem)) ||
             (extractedEmail !== null && !isValidEmail) ||
             (extractedPhone !== null && !isValidPhone) ||
             (extractedServiceNeed !== null && !isValidServiceNeed) ||
@@ -1578,10 +1632,15 @@ Return JSON: ${isDemoMode
           
           if (isValidName) leadData.name = extractedName;
           
-          // Sales agent fields (only save if not demo mode)
+          // Sales agent fields - NEW 9-STEP FLOW (only save if not demo mode)
           if (!isDemoMode) {
             if (extractedCompany) leadData.company = extractedCompany;
             if (extractedBusinessType) leadData.businessType = extractedBusinessType;
+            if (extractedLeadSource) leadData.leadSource = extractedLeadSource;
+            if (extractedLeadsPerWeek) leadData.leadsPerWeek = extractedLeadsPerWeek;
+            if (extractedDealValue) leadData.dealValue = extractedDealValue;
+            if (extractedAfterHoursPain) leadData.afterHoursPain = extractedAfterHoursPain;
+            // Legacy fields (backward compatibility)
             if (extractedCustomers) leadData.customers = extractedCustomers;
             if (extractedPricingTier) leadData.pricingTier = extractedPricingTier;
             if (extractedBiggestProblem) leadData.biggestProblem = extractedBiggestProblem;

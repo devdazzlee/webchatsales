@@ -3,34 +3,72 @@ import { Document } from 'mongoose';
 
 export type LeadDocument = Lead & Document;
 
+/**
+ * Lead Schema - Updated Jan 2026
+ * 
+ * NEW 9-STEP QUALIFICATION FLOW:
+ * 1. name - "Who am I speaking with?"
+ * 2. businessType - "What type of business is this?"
+ * 3. leadSource - "How do leads usually come in for you?"
+ * 4. leadsPerWeek - "Roughly how many per week?"
+ * 5. dealValue - "What's a typical deal or job worth?"
+ * 6. afterHoursPain - "What happens when leads come in after hours?"
+ * 7. [Tie-back message - not a question]
+ * 8. email - collected during close or buying intent
+ * 9. phone - collected during close or buying intent
+ */
 @Schema({ timestamps: true })
 export class Lead {
   @Prop({ required: true })
   sessionId: string;
 
+  // Step 1: Name
   @Prop()
   name: string;
 
+  // Step 2: Business type
+  @Prop()
+  businessType: string;
+
+  // Step 3: How leads come in
+  @Prop()
+  leadSource: string;
+
+  // Step 4: Leads per week
+  @Prop()
+  leadsPerWeek: string;
+
+  // Step 5: Deal/job value
+  @Prop()
+  dealValue: string;
+
+  // Step 6: After-hours pain point
+  @Prop()
+  afterHoursPain: string;
+
+  // Step 3 alternate name (leadSource)
+  @Prop()
+  leadSource: string;
+
+  // Collected during close
   @Prop()
   email: string;
 
   @Prop()
   phone: string;
 
+  // Legacy fields (kept for backward compatibility)
   @Prop()
-  company: string; // Company name (sales agent flow)
+  company: string;
 
   @Prop()
-  businessType: string; // What the business does (sales agent discovery)
+  customers: string;
 
   @Prop()
-  customers: string; // Who their customers are (sales agent discovery)
+  pricingTier: string;
 
   @Prop()
-  pricingTier: string; // Lower ticket or higher ticket (sales agent discovery)
-
-  @Prop()
-  biggestProblem: string; // Biggest problem they're trying to solve (sales agent discovery)
+  biggestProblem: string;
 
   @Prop()
   serviceNeed: string;
@@ -42,13 +80,13 @@ export class Lead {
   budget: string;
 
   @Prop()
-  leadsPerDay: string; // Qualified question: How many leads do you get per day?
+  leadsPerDay: string;
 
   @Prop()
-  overnightLeads: string; // Qualified question: How many leads come in overnight?
+  overnightLeads: string;
 
   @Prop()
-  returnCallTiming: string; // Qualified question: When do you typically return calls?
+  returnCallTiming: string;
 
   @Prop({ type: [String], default: [] })
   tags: string[];
@@ -63,7 +101,11 @@ export class Lead {
   qualifiedAt: Date;
 
   @Prop()
-  conversationId: string; // Reference to conversation
+  conversationId: string;
+
+  // New field: Track if buying intent was detected
+  @Prop({ default: false })
+  hasBuyingIntent: boolean;
 }
 
 export const LeadSchema = SchemaFactory.createForClass(Lead);

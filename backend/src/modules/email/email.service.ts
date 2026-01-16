@@ -2,9 +2,21 @@ import { Injectable } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { config } from '../../config/config';
 
+/**
+ * Email Service
+ * 
+ * IMPORTANT: Gmail requires App Passwords (not regular passwords)
+ * - Enable 2FA on Gmail account
+ * - Generate App Password: https://myaccount.google.com/apppasswords
+ * - Use App Password in SMTP_PASSWORD, not your Gmail login password
+ * 
+ * Error 535-5.7.8 means: Wrong credentials (usually using regular password instead of App Password)
+ */
 @Injectable()
 export class EmailService {
-  private transporter: nodemailer.Transporter;
+  private transporter: nodemailer.Transporter | null = null;
+  private isConfigured: boolean = false;
+  private configError: string | null = null;
 
   constructor() {
     const smtpHost = process.env.SMTP_HOST;
@@ -12,26 +24,52 @@ export class EmailService {
     const smtpEmail = process.env.SMTP_EMAIL;
     const smtpPassword = process.env.SMTP_PASSWORD;
 
+    // Don't crash if email is not configured - just log warning and disable email
     if (!smtpEmail || !smtpPassword) {
-      throw new Error('SMTP_EMAIL and SMTP_PASSWORD environment variables are required');
+      console.warn('[EmailService] ⚠️ SMTP_EMAIL and SMTP_PASSWORD not configured - email sending disabled');
+      console.warn('[EmailService] 📧 To enable email, set SMTP_EMAIL and SMTP_PASSWORD in your .env file');
+      console.warn('[EmailService] 🔑 For Gmail, use an App Password (not your regular password):');
+      console.warn('[EmailService]    1. Enable 2FA on your Gmail account');
+      console.warn('[EmailService]    2. Go to https://myaccount.google.com/apppasswords');
+      console.warn('[EmailService]    3. Generate an App Password for "Mail"');
+      console.warn('[EmailService]    4. Use that 16-character password in SMTP_PASSWORD');
+      this.configError = 'SMTP credentials not configured';
+      return;
     }
 
-    this.transporter = nodemailer.createTransport({
-      host: smtpHost || 'smtp.gmail.com',
-      port: parseInt(smtpPort || '587'),
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: smtpEmail,
-        pass: smtpPassword,
-      },
-    });
+    try {
+      this.transporter = nodemailer.createTransport({
+        host: smtpHost || 'smtp.gmail.com',
+        port: parseInt(smtpPort || '587'),
+        secure: false, // true for 465, false for other ports
+        auth: {
+          user: smtpEmail,
+          pass: smtpPassword,
+        },
+      });
+      this.isConfigured = true;
+      console.log(`[EmailService] ✅ Email service initialized with ${smtpEmail}`);
+    } catch (error: any) {
+      console.error('[EmailService] ❌ Failed to initialize email transporter:', error.message);
+      this.configError = error.message;
+    }
   }
 
   async sendEmail(to: string, subject: string, html: string, text?: string) {
-    const smtpEmail = process.env.SMTP_EMAIL;
-    if (!smtpEmail) {
-      throw new Error('SMTP_EMAIL environment variable is required');
+    // Check if email is configured
+    if (!this.isConfigured || !this.transporter) {
+      console.warn(`[EmailService] ⚠️ Email not sent (not configured): ${subject} → ${to}`);
+      console.warn(`[EmailService] 📋 Reason: ${this.configError || 'Transporter not initialized'}`);
+      // Return success: false instead of throwing - don't break the app for email issues
+      return {
+        success: false,
+        error: this.configError || 'Email service not configured',
+        recipient: to,
+        subject: subject,
+      };
     }
+
+    const smtpEmail = process.env.SMTP_EMAIL;
 
     try {
       const info = await this.transporter.sendMail({
@@ -50,9 +88,29 @@ export class EmailService {
         messageId: info.messageId,
         recipient: to,
       };
-    } catch (error) {
-      console.error(`[EmailService] ❌ Error sending email to ${to}:`, error);
-      throw error;
+    } catch (error: any) {
+      // Handle specific Gmail errors with helpful messages
+      const errorMessage = error.message || String(error);
+      
+      if (errorMessage.includes('535-5.7.8') || errorMessage.includes('BadCredentials')) {
+        console.error(`[EmailService] ❌ Gmail authentication failed for ${to}`);
+        console.error('[EmailService] 🔑 FIX: You need to use a Gmail App Password, not your regular password:');
+        console.error('[EmailService]    1. Go to https://myaccount.google.com/security');
+        console.error('[EmailService]    2. Enable 2-Step Verification');
+        console.error('[EmailService]    3. Go to https://myaccount.google.com/apppasswords');
+        console.error('[EmailService]    4. Create an App Password for "Mail"');
+        console.error('[EmailService]    5. Update SMTP_PASSWORD in your .env with the 16-character App Password');
+      } else {
+        console.error(`[EmailService] ❌ Error sending email to ${to}:`, errorMessage);
+      }
+      
+      // Return error instead of throwing - don't crash the app for email failures
+      return {
+        success: false,
+        error: errorMessage,
+        recipient: to,
+        subject: subject,
+      };
     }
   }
 
