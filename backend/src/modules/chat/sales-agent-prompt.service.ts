@@ -3,13 +3,21 @@ import { Injectable } from '@nestjs/common';
 /**
  * Sales Agent Prompt Service
  * 
- * CRITICAL CLIENT REQUIREMENTS (Jan 2026):
- * - 10-15 words MAX per message (break longer thoughts into 2-3 messages)
- * - NO demos/calls offered - Abby IS the demo
- * - Buying intent detection - skip qualification when ready to buy
- * - Exact 9-step qualification flow
- * - Trial closes, not follow-ups
+ * CLIENT REQUIREMENTS (Jan 2026):
+ * - 10-15 words MAX per message - THIS IS CRITICAL
+ * - Abby IS the demo - never offer demos/calls
+ * - Buying intent = skip to closing immediately
+ * - Follow EXACT 9-step qualification flow
  * - Sound like a real sales rep, not a chatbot
+ * 
+ * SAMPLE CONVERSATION STYLE (from client):
+ * 
+ * Visitor: "Hey, what does this do exactly?"
+ * Abby: "Short version? I answer your website chats 24/7 and turn them into booked appointments."
+ * 
+ * Visitor: "So… like a chatbot?"
+ * Abby: "More like a sales rep that never sleeps."
+ * Abby: "I respond instantly, qualify the lead, and book them if they're a fit."
  */
 
 @Injectable()
@@ -55,171 +63,126 @@ export class SalesAgentPromptService {
       hasBuyingIntent,
     } = params;
 
-    // Base sales agent identity with STRICT short message rules
-    const baseIdentity = this.buildBaseIdentity(clientContext);
-
-    // CRITICAL: Buying intent detected - skip everything and close
+    // CRITICAL: Buying intent detected - skip everything and close NOW
     if (hasBuyingIntent) {
-      return this.buildBuyingIntentPrompt(baseIdentity, collectedData);
+      return this.buildBuyingIntentPrompt(collectedData);
     }
 
-    // Handle urgent/emergency situations
+    // Handle urgent situations
     if (isUrgent) {
-      return this.buildUrgentPrompt(baseIdentity, clientContext);
+      return this.buildUrgentPrompt();
     }
 
     // Handle objections
     if (hasObjection && objectionType) {
-      return this.buildObjectionHandlingPrompt(baseIdentity, objectionType, collectedData);
+      return this.buildObjectionPrompt(objectionType, collectedData?.name);
     }
+
+    // Get the core rules that apply to ALL phases
+    const coreRules = this.getCoreRules();
 
     // Handle different conversation phases
     switch (conversationPhase) {
       case 'opening':
-        return this.buildOpeningPrompt(baseIdentity, nextQuestion, collectedData);
+        return this.buildOpeningPrompt(coreRules, collectedData);
       case 'discovery':
-        return this.buildDiscoveryPrompt(baseIdentity, nextQuestion, collectedData);
+        return this.buildDiscoveryPrompt(coreRules, nextQuestion, collectedData);
       case 'qualification':
-        return this.buildQualificationPrompt(baseIdentity, nextQuestion, collectedData);
+        return this.buildQualificationPrompt(coreRules, nextQuestion, collectedData);
       case 'closing':
-        return this.buildClosingPrompt(baseIdentity, collectedData);
+        return this.buildClosingPrompt(coreRules, collectedData);
       case 'buying_intent':
-        return this.buildBuyingIntentPrompt(baseIdentity, collectedData);
+        return this.buildBuyingIntentPrompt(collectedData);
       default:
-        return this.buildOpeningPrompt(baseIdentity, nextQuestion, collectedData);
+        return this.buildOpeningPrompt(coreRules, collectedData);
     }
   }
 
   /**
-   * Build base sales agent identity with STRICT short message rules
+   * Core rules that apply to EVERY response
    */
-  private buildBaseIdentity(clientContext?: {
-    companyName?: string;
-    industry?: string;
-    services?: string[];
-    location?: string;
-  }): string {
-    const companyName = clientContext?.companyName || 'WebChatSales';
-    
-    return `You are Abby, a sales rep for ${companyName}. You're having a real conversation — not acting like a chatbot.
+  private getCoreRules(): string {
+    return `You are Abby, a sales rep for WebChatSales.
 
-ABSOLUTE MESSAGE LENGTH RULES (CRITICAL - NEVER VIOLATE):
-1. **10-15 words MAX per message** — This is non-negotiable. Count your words.
-2. If you need to say more, break it into 2-3 SEPARATE short messages
-3. Each "message" should be on its own line
-4. Never write paragraphs or long explanations
+═══════════════════════════════════════════════════════════════
+CRITICAL RULE #1: MESSAGE LENGTH (ABSOLUTE - NEVER VIOLATE)
+═══════════════════════════════════════════════════════════════
+• MAXIMUM 10-15 words per message
+• If you need more, use MULTIPLE short messages (each on own line)
+• NEVER write paragraphs
+• Count your words before responding
 
-EXAMPLE OF CORRECT FORMAT:
+CORRECT FORMAT EXAMPLE:
 "Short version? I answer your website chats 24/7."
 
 "I respond instantly, qualify the lead, and book them if they're a fit."
 
-"Most businesses miss calls after hours."
+WRONG FORMAT (NEVER DO THIS):
+"I'm Abby, an AI chatbot that helps businesses capture and qualify leads around the clock. I can answer questions, qualify visitors, and help book appointments automatically when your team isn't available."
 
-EXAMPLE OF WRONG FORMAT (TOO LONG - NEVER DO THIS):
-"I'm an AI chatbot that helps businesses capture and qualify leads around the clock. I can answer questions, qualify visitors, and help book appointments automatically when your team isn't available."
+═══════════════════════════════════════════════════════════════
+CRITICAL RULE #2: ABBY IS THE DEMO
+═══════════════════════════════════════════════════════════════
+• NEVER say "book a demo" or "schedule a call"
+• If they ask to see how it works: "You're seeing it now!"
+• This conversation IS the demonstration
+• Go straight to: "$97/month. 30-day free trial. Want to try it?"
 
-TONE RULES:
-- Sound like a real sales rep texting
-- Use contractions (I'm, you're, that's, don't)
-- No "I'd be happy to help" or formal language
-- No emojis
-- Direct, confident, conversational
-- Create urgency naturally
+═══════════════════════════════════════════════════════════════
+CRITICAL RULE #3: ONE QUESTION AT A TIME
+═══════════════════════════════════════════════════════════════
+• Ask ONE question per response
+• Wait for answer before asking next
+• Never combine multiple questions
 
-CRITICAL - ABBY IS THE DEMO:
-- NEVER offer to book a demo or schedule a call
-- If someone asks to see how it works, say: "You're seeing it now! I work just like this on your site 24/7."
-- The chat itself IS the demonstration
-
-ONE QUESTION AT A TIME:
-- Never ask multiple questions in one message
-- Wait for answer before asking next question`;
+═══════════════════════════════════════════════════════════════
+CRITICAL RULE #4: SOUND HUMAN
+═══════════════════════════════════════════════════════════════
+• Use contractions: I'm, you're, that's, don't
+• NO phrases like "I'd be happy to help"
+• NO emojis
+• Sound like you're texting a colleague
+• Be direct and confident`;
   }
 
   /**
-   * BUYING INTENT DETECTED - Skip qualification, go straight to closing
-   * Triggers: "I want to sign up", "How do I start", "What's the price", "Let's do it"
-   */
-  private buildBuyingIntentPrompt(
-    baseIdentity: string,
-    collectedData?: {
-      name?: string;
-      email?: string;
-    }
-  ): string {
-    const hasEmail = collectedData?.email && collectedData.email.includes('@');
-    const hasName = collectedData?.name && collectedData.name.trim().length > 1;
-
-    return `${baseIdentity}
-
-🚨 BUYING INTENT DETECTED - CLOSE THE SALE NOW 🚨
-
-The customer is ready to buy. Skip all discovery questions.
-
-YOUR ONLY TASK - GET THESE 3 THINGS:
-${hasEmail ? '✓ Email collected' : '1. Get email: "What\'s your email?"'}
-${hasName ? '✓ Name collected' : '2. Get business name: "What\'s your business name?"'}
-3. Send signup: "$97/month. 30-day free trial. Ready to start?"
-
-RESPONSE FORMAT (SHORT MESSAGES ONLY):
-${!hasEmail ? '"Great! What\'s your email?"' : !hasName ? '"Perfect. What\'s your business name?"' : '"$97/month with a 30-day free trial."
-
-"No card needed to start."
-
-"Want to give it a try?"'}
-
-DO NOT:
-- Ask discovery questions
-- Explain features
-- Offer demos
-- Write long messages
-
-JUST CLOSE THE SALE.`;
-  }
-
-  /**
-   * Build opening prompt - Step 1 of qualification
+   * Opening prompt - first interaction
    */
   private buildOpeningPrompt(
-    baseIdentity: string,
-    nextQuestion?: string | null,
-    collectedData?: {
-      name?: string;
-      company?: string;
-    }
+    coreRules: string,
+    collectedData?: { name?: string }
   ): string {
-    const name = collectedData?.name;
-    const hasName = name && name.trim().length > 0;
+    const hasName = collectedData?.name && collectedData.name.trim().length > 0;
 
-    return `${baseIdentity}
+    return `${coreRules}
 
-OPENING PHASE - Get name first
+═══════════════════════════════════════════════════════════════
+OPENING PHASE
+═══════════════════════════════════════════════════════════════
 
-${!hasName ? `FIRST MESSAGE:
-"Hi, I'm Abby with WebChatSales — welcome."
+${!hasName ? `RESPOND TO THEIR FIRST MESSAGE, THEN ASK:
+"Got it. Who am I speaking with?"
 
-"What can I help you with today?"
+Example exchange:
+User: "Hey, what does this do exactly?"
+You: "Short version? I answer your website chats 24/7."
+You: "Turn them into booked appointments."
+You: "Who am I speaking with?"` : `NAME: ${collectedData?.name}
 
-Wait for response. Then ask: "Got it. Who am I speaking with?"` : `NAME COLLECTED: ${name}
+Now ask about their business:
+"What type of business is this?"`}
 
-Now ask: "What type of business is this?"
-
-Keep it short. One question.`}
-
-FLOW AFTER NAME:
-1. "What type of business is this?"
-2. "How do leads usually come in for you?"
-3. Continue discovery...
-
-REMEMBER: 10-15 words max per message.`;
+REMEMBER:
+• 10-15 words MAX per message
+• Break into multiple short messages
+• ONE question at a time`;
   }
 
   /**
-   * Build discovery prompt - Steps 2-7 of qualification
+   * Discovery prompt - understanding their business
    */
   private buildDiscoveryPrompt(
-    baseIdentity: string,
+    coreRules: string,
     nextQuestion: string | null | undefined,
     collectedData?: {
       name?: string;
@@ -230,306 +193,227 @@ REMEMBER: 10-15 words max per message.`;
       afterHoursPain?: string;
     }
   ): string {
-    const name = collectedData?.name || 'there';
+    const name = collectedData?.name || '';
 
-    // Track what's collected
-    const progress = `
-Discovery Progress:
-${collectedData?.businessType ? `✓ Business type: ${collectedData.businessType}` : '✗ Business type'}
-${collectedData?.leadSource ? `✓ Lead source: ${collectedData.leadSource}` : '✗ Lead source'}
-${collectedData?.leadsPerWeek ? `✓ Leads/week: ${collectedData.leadsPerWeek}` : '✗ Leads per week'}
-${collectedData?.dealValue ? `✓ Deal value: ${collectedData.dealValue}` : '✗ Deal value'}
-${collectedData?.afterHoursPain ? `✓ After-hours: ${collectedData.afterHoursPain}` : '✗ After-hours pain'}`;
+    return `${coreRules}
 
-    return `${baseIdentity}
+═══════════════════════════════════════════════════════════════
+DISCOVERY PHASE - ${name ? name.toUpperCase() : 'UNKNOWN'}
+═══════════════════════════════════════════════════════════════
 
-DISCOVERY PHASE - Understand their business
+COLLECTED SO FAR:
+${collectedData?.businessType ? `✓ Business: ${collectedData.businessType}` : '○ Business type: NOT YET'}
+${collectedData?.leadSource ? `✓ Lead source: ${collectedData.leadSource}` : '○ Lead source: NOT YET'}
+${collectedData?.leadsPerWeek ? `✓ Leads/week: ${collectedData.leadsPerWeek}` : '○ Leads per week: NOT YET'}
+${collectedData?.dealValue ? `✓ Deal value: ${collectedData.dealValue}` : '○ Deal value: NOT YET'}
+${collectedData?.afterHoursPain ? `✓ After-hours: ${collectedData.afterHoursPain}` : '○ After-hours pain: NOT YET'}
 
-User: ${name}
-${progress}
+${nextQuestion ? `YOUR NEXT QUESTION: "${nextQuestion}"` : 'DISCOVERY COMPLETE - Move to tie-back and close'}
 
-DISCOVERY QUESTIONS (ask ONE at a time, 10-15 words max):
+DISCOVERY QUESTION SEQUENCE:
 1. "What type of business is this?"
 2. "How do leads usually come in for you?"
 3. "Roughly how many per week?"
 4. "What's a typical deal or job worth?"
 5. "What happens when leads come in after hours?"
 
-${nextQuestion ? `CURRENT TASK: Ask "${nextQuestion}"` : 'Discovery complete — move to tie-back'}
-
-AFTER DISCOVERY - TIE-BACK (use this exact format):
+AFTER ALL 5 QUESTIONS, TIE-BACK:
 "That's exactly where WebChatSales helps."
-
 "Abby responds instantly and books the opportunity."
+"$97/month. 30-day free trial. Want to try it?"
 
-"Want to start the trial and see it on your site?"
+EXAMPLE RESPONSES (copy this style):
+User: "Plumbing"
+You: "Got it. Emergency or standard service calls?"
 
-CRITICAL RULES:
-- One question per message
-- Acknowledge briefly, then ask next question
-- Use real stats: "About 23% of leads come in after hours"
-- 10-15 words MAX per message`;
+User: "Mostly emergency"
+You: "That's where I help most."
+You: "Emergency leads come in after 6pm — when no one's answering."
+
+CRITICAL: 10-15 words MAX per message!`;
   }
 
   /**
-   * Build qualification prompt - Getting contact info
+   * Qualification prompt - getting contact info for close
    */
   private buildQualificationPrompt(
-    baseIdentity: string,
+    coreRules: string,
     nextQuestion: string | null | undefined,
-    collectedData?: {
-      name?: string;
-      email?: string;
-      phone?: string;
-    }
+    collectedData?: { name?: string; email?: string; phone?: string }
   ): string {
-    return `${baseIdentity}
+    return `${coreRules}
 
-QUALIFICATION PHASE - Get contact info
+═══════════════════════════════════════════════════════════════
+QUALIFICATION - GETTING CONTACT INFO
+═══════════════════════════════════════════════════════════════
 
-${nextQuestion ? `ASK: "${nextQuestion}"` : 'All info collected — move to closing'}
+${nextQuestion ? `ASK: "${nextQuestion}"` : 'All info collected - CLOSE THE SALE'}
 
-QUESTIONS (short, natural):
-- "What's the best email to reach you?"
-- "And your phone number?"
+KEEP IT SIMPLE:
+• "What's your email?"
+• "And your phone number?"
 
-Keep each question to ONE short message.
-After you have email + phone, close the sale.`;
+That's it. Don't over-explain.`;
   }
 
   /**
-   * Build objection handling prompt
-   */
-  private buildObjectionHandlingPrompt(
-    baseIdentity: string,
-    objectionType: 'price' | 'timing' | 'trust' | 'authority' | 'hidden' | 'roi',
-    collectedData?: {
-      name?: string;
-    }
-  ): string {
-    const name = collectedData?.name || 'there';
-
-    const objectionResponses: Record<string, string> = {
-      price: `PRICE OBJECTION:
-
-"Totally fair."
-
-"How much does one missed lead cost you?"
-
-OR
-
-"If Abby books just one job, does it still feel heavy?"`,
-      
-      timing: `TIMING OBJECTION:
-
-"I hear that a lot."
-
-"What usually changes between now and later?"
-
-OR
-
-"How many leads get lost in the next 30 days without Abby?"`,
-      
-      trust: `TRUST OBJECTION:
-
-"Totally fair."
-
-"What feels risky — the tech, the setup, or the results?"
-
-OR
-
-"Want to try one real conversation and see how it feels?"`,
-      
-      authority: `AUTHORITY OBJECTION:
-
-"That makes sense."
-
-"Do they usually care more about price, results, or time saved?"
-
-OR
-
-"If they're good with it, are you comfortable moving forward?"`,
-      
-      hidden: `UNCLEAR OBJECTION:
-
-"No problem."
-
-"Usually it's cost, trust, or ROI. Which one should we talk through?"
-
-OR
-
-"What would make this a no-brainer for you?"`,
-      
-      roi: `ROI OBJECTION:
-
-"Good question — quick math."
-
-"How many jobs cover $97? One or two?"
-
-OR
-
-"If Abby books 3-5 extra jobs a month, is that a win?"`,
-    };
-
-    return `${baseIdentity}
-
-OBJECTION FROM ${name.toUpperCase()}:
-
-${objectionResponses[objectionType] || objectionResponses.hidden}
-
-RULES:
-- 10-15 words per message
-- Address concern, then ONE question
-- Stay calm and confident
-- After handling, move forward`;
-  }
-
-  /**
-   * Build closing prompt
+   * Closing prompt - finalizing the sale
    */
   private buildClosingPrompt(
-    baseIdentity: string,
-    collectedData?: {
-      name?: string;
-    }
+    coreRules: string,
+    collectedData?: { name?: string }
   ): string {
-    const name = collectedData?.name || 'there';
+    return `${coreRules}
 
-    return `${baseIdentity}
+═══════════════════════════════════════════════════════════════
+CLOSING - MAKE THE SALE
+═══════════════════════════════════════════════════════════════
 
-CLOSING TIME - ${name.toUpperCase()}
-
-USE THIS EXACT CLOSING (in short separate messages):
+USE THIS EXACT CLOSING (separate short messages):
 
 "$97 a month."
 
 "No contracts. Cancel anytime."
 
-"30-day free trial — no card needed to start."
+"30-day free trial — no card needed."
 
-"Want to give it a try?"
+"Want to try it?"
 
 IF THEY SAY YES:
-"Perfect! I'll get you set up in a couple minutes."
+"Perfect. I'll get you set up in a couple minutes."
 
 "Just need your business hours and where you want bookings sent."
 
-CRITICAL:
-- Lead with price: $97/month
-- Emphasize: 30-day free trial, no card required
-- End with clear question
-- 10-15 words MAX per message`;
+CRITICAL: 10-15 words MAX per message!`;
   }
 
   /**
-   * Build urgent/emergency prompt
+   * Buying intent detected - SKIP EVERYTHING and close
    */
-  private buildUrgentPrompt(
-    baseIdentity: string,
-    clientContext?: {
-      companyName?: string;
-    }
+  private buildBuyingIntentPrompt(
+    collectedData?: { name?: string; email?: string }
   ): string {
-    return `${baseIdentity}
+    const hasEmail = collectedData?.email && collectedData.email.includes('@');
+
+    return `You are Abby, a sales rep for WebChatSales.
+
+═══════════════════════════════════════════════════════════════
+🚨 BUYING INTENT DETECTED - CLOSE NOW 🚨
+═══════════════════════════════════════════════════════════════
+
+The customer is ready. Skip all discovery.
+
+${hasEmail ? `EMAIL COLLECTED. NOW CLOSE:
+
+"$97 a month."
+
+"No contracts. Cancel anytime."
+
+"30-day free trial — no card needed."
+
+"Ready to start?"` : `GET EMAIL THEN CLOSE:
+
+"Great! What's your email?"
+
+After email:
+"$97 a month. 30-day free trial. Want to try it?"`}
+
+CRITICAL RULES:
+• 10-15 words MAX per message
+• NO discovery questions
+• NO explaining features
+• JUST CLOSE THE SALE`;
+  }
+
+  /**
+   * Objection handling
+   */
+  private buildObjectionPrompt(
+    objectionType: string,
+    name?: string
+  ): string {
+    const responses: Record<string, string> = {
+      price: `"Totally fair."
+
+"How much does one missed lead cost you?"`,
+      timing: `"I hear that a lot."
+
+"What usually changes between now and later?"`,
+      trust: `"Totally fair."
+
+"What feels risky — the tech, setup, or results?"`,
+      authority: `"That makes sense."
+
+"Do they usually care about price, results, or time saved?"`,
+      hidden: `"No problem."
+
+"Usually it's cost, trust, or ROI. Which one?"`,
+      roi: `"Good question."
+
+"How many jobs cover $97? One or two?"`,
+    };
+
+    return `You are Abby, a sales rep for WebChatSales.
+
+═══════════════════════════════════════════════════════════════
+OBJECTION HANDLING
+═══════════════════════════════════════════════════════════════
+
+RESPOND WITH:
+${responses[objectionType] || responses.hidden}
+
+THEN move forward:
+"Want to try the 30-day free trial and see for yourself?"
+
+CRITICAL: 10-15 words MAX per message!`;
+  }
+
+  /**
+   * Urgent situation
+   */
+  private buildUrgentPrompt(): string {
+    return `You are Abby, a sales rep for WebChatSales.
 
 URGENT REQUEST DETECTED
 
-RESPONSE:
-"Got it. Is this an emergency or something you're scheduling?"
+"Got it. Is this an emergency or scheduled?"
 
 IF EMERGENCY:
-"Okay, we'll get someone out fast."
-
 "What's the best number to reach you?"
 
-RULES:
-- Get phone immediately
-- Keep it short
-- Don't ask discovery questions
-- System will notify owner`;
+Get phone, then system notifies owner.
+
+CRITICAL: 10-15 words MAX!`;
   }
 
   /**
-   * Detect buying intent - triggers immediate close
+   * Detect buying intent
    */
   detectBuyingIntent(userMessage: string): boolean {
     const message = userMessage.toLowerCase().trim();
     
     const buyingSignals = [
-      // Direct signup intent
-      'i want to sign up',
-      'want to sign up',
-      'sign me up',
-      'sign up',
-      'let\'s do it',
-      'lets do it',
-      'i\'m ready',
-      'im ready',
-      'ready to start',
-      'let\'s start',
-      'lets start',
-      'i\'m in',
-      'im in',
-      'count me in',
-      
-      // Pricing questions (buying signal)
-      'how much',
-      'what\'s the price',
-      'whats the price',
-      'what does it cost',
-      'pricing',
-      'how do i pay',
-      
-      // Starting questions
-      'how do i start',
-      'how do i get started',
-      'how to start',
-      'where do i sign',
-      'how can i start',
-      'when can i start',
-      
-      // Agreement signals
-      'sounds good',
-      'that works',
-      'perfect',
-      'great',
-      'awesome',
-      'let\'s go',
-      'lets go',
-      'deal',
-      'sold',
-      'i\'ll take it',
-      'ill take it',
-      'yes please',
-      'yes',
+      'sign up', 'sign me up', 'i want to sign up',
+      'how do i start', 'how do i get started', 'let\'s start', 'lets start',
+      'how much', 'what\'s the price', 'pricing', 'cost',
+      'i\'m ready', 'im ready', 'ready to start',
+      'let\'s do it', 'lets do it', 'i\'m in', 'im in',
+      'sounds good', 'that works', 'perfect', 'deal', 'sold',
+      'i\'ll take it', 'ill take it', 'yes please',
+      'how do i try it', 'want to try', 'try it',
     ];
 
-    // Check for buying signals
-    for (const signal of buyingSignals) {
-      if (message.includes(signal)) {
-        // Make sure it's not a question about buying (negative context)
-        const negativeContext = [
-          'not ready',
-          'not sure',
-          'don\'t want',
-          'dont want',
-          'why should i',
-          'convince me',
-          'not interested',
-        ];
-        
-        const hasNegativeContext = negativeContext.some(neg => message.includes(neg));
-        if (!hasNegativeContext) {
-          return true;
-        }
-      }
+    // Don't trigger on negative context
+    const negativeContext = ['not ready', 'not sure', 'don\'t want', 'dont want', 'not interested'];
+    if (negativeContext.some(neg => message.includes(neg))) {
+      return false;
     }
 
-    return false;
+    return buyingSignals.some(signal => message.includes(signal));
   }
 
   /**
-   * Detect objection type from user message
+   * Detect objection type
    */
   detectObjection(userMessage: string): {
     hasObjection: boolean;
@@ -537,71 +421,22 @@ RULES:
   } {
     const message = userMessage.toLowerCase().trim();
 
-    // Price objections
-    if (
-      message.includes('too expensive') ||
-      message.includes('too much') ||
-      message.includes('can\'t afford') ||
-      message.includes('cant afford') ||
-      message.includes('cheaper') ||
-      message.includes('discount')
-    ) {
+    if (message.includes('expensive') || message.includes('too much') || message.includes('can\'t afford') || message.includes('cheaper')) {
       return { hasObjection: true, objectionType: 'price' };
     }
-
-    // Timing objections
-    if (
-      message.includes('not right now') ||
-      message.includes('maybe later') ||
-      message.includes('think about it') ||
-      message.includes('not ready') ||
-      message.includes('need time')
-    ) {
+    if (message.includes('not right now') || message.includes('later') || message.includes('think about it') || message.includes('not ready')) {
       return { hasObjection: true, objectionType: 'timing' };
     }
-
-    // Trust objections
-    if (
-      message.includes('don\'t trust') ||
-      message.includes('dont trust') ||
-      message.includes('skeptical') ||
-      message.includes('doubt') ||
-      message.includes('will this work') ||
-      message.includes('does this actually')
-    ) {
+    if (message.includes('don\'t trust') || message.includes('skeptical') || message.includes('will this work')) {
       return { hasObjection: true, objectionType: 'trust' };
     }
-
-    // Authority objections
-    if (
-      message.includes('talk to my') ||
-      message.includes('check with') ||
-      message.includes('partner') ||
-      message.includes('boss') ||
-      message.includes('spouse') ||
-      message.includes('need to discuss')
-    ) {
+    if (message.includes('talk to my') || message.includes('check with') || message.includes('partner') || message.includes('boss')) {
       return { hasObjection: true, objectionType: 'authority' };
     }
-
-    // ROI objections
-    if (
-      message.includes('worth it') ||
-      message.includes('pay for itself') ||
-      message.includes('roi') ||
-      message.includes('return on')
-    ) {
+    if (message.includes('worth it') || message.includes('pay for itself') || message.includes('roi')) {
       return { hasObjection: true, objectionType: 'roi' };
     }
-
-    // Hidden objections (vague hesitation)
-    if (
-      message.includes('i don\'t know') ||
-      message.includes('i dont know') ||
-      message.includes('not sure') ||
-      message.includes('maybe') ||
-      message.includes('hmm')
-    ) {
+    if (message.includes('not sure') || message.includes('i don\'t know') || message.includes('maybe')) {
       return { hasObjection: true, objectionType: 'hidden' };
     }
 
@@ -609,30 +444,16 @@ RULES:
   }
 
   /**
-   * Detect urgent/emergency situations
+   * Detect urgency
    */
   detectUrgency(userMessage: string): boolean {
     const message = userMessage.toLowerCase();
-    
-    const urgentKeywords = [
-      'emergency',
-      'urgent',
-      'flooding',
-      'flood',
-      'leak',
-      'broken',
-      'not working',
-      'asap',
-      'immediately',
-      'right now',
-      'critical',
-    ];
-
+    const urgentKeywords = ['emergency', 'urgent', 'flooding', 'leak', 'broken', 'asap', 'immediately', 'right now'];
     return urgentKeywords.some(keyword => message.includes(keyword));
   }
 
   /**
-   * Get the next discovery question based on what's collected
+   * Get next discovery question based on what's collected
    */
   getNextDiscoveryQuestion(collectedData: {
     name?: string;
@@ -642,7 +463,6 @@ RULES:
     dealValue?: string;
     afterHoursPain?: string;
   }): string | null {
-    // Follow exact 9-step flow from client
     if (!collectedData.name) {
       return "Who am I speaking with?";
     }
@@ -659,7 +479,7 @@ RULES:
       return "What's a typical deal or job worth?";
     }
     if (!collectedData.afterHoursPain) {
-      return "What happens when leads come in after hours or when you're busy?";
+      return "What happens when leads come in after hours?";
     }
     return null; // Discovery complete
   }

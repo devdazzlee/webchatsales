@@ -596,34 +596,25 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       }
     }
     
-    // Check if we're in demo mode (WebChatSales.com - not client websites)
-    // Demo mode: No lead qualification, no booking - just explain WebChatSales
-    const isDemoMode = process.env.DEMO_MODE === 'true' || 
-                       process.env.DEMO_MODE === '1' ||
-                       (process.env.FRONTEND_URL && process.env.FRONTEND_URL.includes('webchatsales.com'));
+    // CLIENT REQUIREMENT (Jan 2026): NO DEMO MODE
+    // Abby should ALWAYS qualify and sell, even on webchatsales.com
+    // The conversation flow is the same everywhere - qualify, then close the sale
+    const isDemoMode = false; // Disabled - always qualify
     
-    if (isDemoMode) {
-      console.log(`[ChatService] 🎭 Demo mode active for ${sessionId} - WebChatSales.com chatbot (no qualification/booking)`);
-    }
+    console.log(`[ChatService] Sales mode active for ${sessionId} - qualifying and selling`);
 
-    // Skip discovery/qualification in demo mode
+    // Check discovery phase - MUST complete before qualification
     let discoveryPhase: { isComplete: boolean; discoveryCount: number; nextDiscoveryQuestion?: string | null } = { 
       isComplete: true, 
       discoveryCount: 0, 
       nextDiscoveryQuestion: null 
     };
-    if (!isDemoMode) {
-    // Check discovery phase - MUST complete before qualification
-      discoveryPhase = await this.checkDiscoveryPhase(conversation);
+    
+    discoveryPhase = await this.checkDiscoveryPhase(conversation);
     console.log(`[ChatService] Discovery phase check for ${sessionId}:`, discoveryPhase);
     
     // Extract lead data from conversation (this updates the lead in database)
-    // Always extract - if user mentions business needs during discovery, we capture it
-    // But we don't ASK for personal info during discovery (that's controlled by question flow)
     await this.extractAndSaveLead(sessionId, conversation);
-    } else {
-      console.log(`[ChatService] Demo mode active for ${sessionId} - skipping lead qualification`);
-    }
     
     // Get lead state AFTER extraction to detect if a field was cleared (validation failure)
     // Note: Using immediate refetch - MongoDB write is synchronous in this context
@@ -769,67 +760,45 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       schedulingLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/book-demo?sessionId=${sessionId}`;
     }
 
-    // Build system prompt - use Sales Agent for client websites, legacy for demo mode
-    let systemPrompt: string;
+    // Build system prompt - ALWAYS use Sales Agent prompts
+    // CLIENT REQUIREMENT: Abby should always qualify and sell
     
-    if (isDemoMode) {
-      // Demo mode - use legacy prompt builder
-      systemPrompt = this.promptBuilder.buildSystemPrompt({
-      isSupportMode,
-        isQualificationActive: false,
-      ticketJustCreated,
-      activeTicketId: activeTicket?.ticketId,
-        nextQuestion: null,
-      lastValidationFailure,
-      leadServiceNeed: lead?.serviceNeed,
-      leadTiming: lead?.timing,
-      leadBudget: lead?.budget,
-      schedulingLink,
-        isDiscoveryPhase: false,
-        nextDiscoveryQuestion: null,
-        discoveryCount: 0,
-        isDemoMode: true,
-      });
-    } else {
-      // Client website - use Sales Agent prompt system
-      // Get next discovery question using new flow
-      const salesAgentNextQuestion = this.salesAgentPrompt.getNextDiscoveryQuestion({
+    // Get next discovery question using new 9-step flow
+    const salesAgentNextQuestion = this.salesAgentPrompt.getNextDiscoveryQuestion({
+      name: lead?.name,
+      businessType: lead?.businessType,
+      leadSource: lead?.leadSource,
+      leadsPerWeek: lead?.leadsPerWeek,
+      dealValue: lead?.dealValue,
+      afterHoursPain: lead?.afterHoursPain,
+    });
+    
+    const systemPrompt = this.salesAgentPrompt.buildSalesAgentPrompt({
+      conversationPhase,
+      nextQuestion: salesAgentNextQuestion || nextQuestion || undefined,
+      clientContext: {
+        companyName: process.env.CLIENT_COMPANY_NAME || 'WebChatSales',
+        industry: process.env.CLIENT_INDUSTRY,
+        services: process.env.CLIENT_SERVICES?.split(','),
+        location: process.env.CLIENT_LOCATION,
+        businessHours: process.env.CLIENT_BUSINESS_HOURS,
+      },
+      hasObjection,
+      objectionType,
+      collectedData: {
         name: lead?.name,
+        company: lead?.company,
         businessType: lead?.businessType,
         leadSource: lead?.leadSource,
         leadsPerWeek: lead?.leadsPerWeek,
         dealValue: lead?.dealValue,
         afterHoursPain: lead?.afterHoursPain,
-      });
-      
-      systemPrompt = this.salesAgentPrompt.buildSalesAgentPrompt({
-        conversationPhase,
-        nextQuestion: salesAgentNextQuestion || nextQuestion || undefined,
-        clientContext: {
-          // TODO: Load from client intake form / database
-          companyName: process.env.CLIENT_COMPANY_NAME,
-          industry: process.env.CLIENT_INDUSTRY,
-          services: process.env.CLIENT_SERVICES?.split(','),
-          location: process.env.CLIENT_LOCATION,
-          businessHours: process.env.CLIENT_BUSINESS_HOURS,
-        },
-        hasObjection,
-        objectionType,
-        collectedData: {
-          name: lead?.name,
-          company: lead?.company,
-          businessType: lead?.businessType,
-          leadSource: lead?.leadSource,
-          leadsPerWeek: lead?.leadsPerWeek,
-          dealValue: lead?.dealValue,
-          afterHoursPain: lead?.afterHoursPain,
-          email: lead?.email,
-          phone: lead?.phone,
-        },
-        isUrgent,
-        hasBuyingIntent,
-      });
-    }
+        email: lead?.email,
+        phone: lead?.phone,
+      },
+      isUrgent,
+      hasBuyingIntent,
+    });
 
     // Convert conversation messages to OpenAI format
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];

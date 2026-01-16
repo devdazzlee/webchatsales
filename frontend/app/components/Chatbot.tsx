@@ -108,14 +108,11 @@ export default function Chatbot() {
       const data = await response.json();
       if (data.success) {
         setSessionId(data.sessionId);
-        // Auto-send greeting message - sales agent opening for client websites, demo for WebChatSales.com
-        // CLIENT REQUIREMENT (Jan 2026): Short messages, control conversation from start
-        const isDemoSite = typeof window !== 'undefined' && window.location.hostname.includes('webchatsales.com');
+        // Auto-send greeting message
+        // CLIENT REQUIREMENT (Jan 2026): Short messages, same flow everywhere
         const greetingMessage: Message = {
           id: '1',
-          text: isDemoSite 
-            ? 'Hey! I\'m Abby — the demo for WebChatSales.\n\nI work 24/7 on your site to capture leads.\n\nWhat would you like to know?'
-            : 'Hi, I\'m Abby with WebChatSales — welcome.\n\nWhat can I help you with today?',
+          text: 'Hi, I\'m Abby with WebChatSales — welcome.\n\nWhat can I help you with today?',
           sender: 'abby',
           timestamp: new Date(),
         };
@@ -269,16 +266,30 @@ export default function Chatbot() {
       let accumulatedText = '';
       let hasReceivedChunk = false;
 
-      // Set timeout to detect if streaming stalls (black screen issue)
+      // FIX FOR BLACK SCREEN: Set a shorter initial timeout
+      // If no chunk arrives within 10 seconds, show error
       const resetTimeout = () => {
         if (timeoutId) clearTimeout(timeoutId);
+        const timeoutDuration = hasReceivedChunk ? 30000 : 10000; // 10s initial, 30s after first chunk
         timeoutId = setTimeout(() => {
-          if (hasReceivedChunk && isStreaming) {
-            console.warn('Stream timeout - no chunks received for 30 seconds');
-            setIsStreaming(false);
-            setIsLoading(false);
+          console.warn(`Stream timeout - no chunks received for ${timeoutDuration/1000} seconds`);
+          setIsStreaming(false);
+          setIsLoading(false);
+          
+          // If no chunks received at all, show error message
+          if (!hasReceivedChunk) {
+            const errorId = (Date.now() + 1).toString();
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: errorId,
+                text: 'Sorry, I\'m taking too long to respond. Please try again.',
+                sender: 'abby',
+                timestamp: new Date(),
+              },
+            ]);
           }
-        }, 30000); // 30 second timeout
+        }, timeoutDuration);
       };
 
       resetTimeout();
@@ -691,7 +702,7 @@ export default function Chatbot() {
               </div>
             ) : (
               messages
-                .filter((message) => message.text && message.text.trim()) // Only show messages with content
+                .filter((message) => message.text && message.text.replace(/\n/g, '').trim()) // Only show messages with actual content (not just newlines)
                 .map((message) => (
                   <div
                     key={message.id}

@@ -12,20 +12,26 @@ export class EmailController {
   @Post('send-beta-invite')
   async sendBetaInvite(@Body() body: { email: string; name: string; company?: string; outcomes?: string }) {
     try {
-      // Send confirmation email to the user
-      await this.emailService.sendBetaInviteConfirmation(body.email, body.name);
+      // Try to send emails, but don't fail if email service is not configured
+      const userEmailResult = await this.emailService.sendBetaInviteConfirmation(body.email, body.name);
+      const adminEmailResult = await this.emailService.sendBetaSignupNotification(body.email, body.name, body.company, body.outcomes);
       
-      // Send notification email to admin/business owner
-      await this.emailService.sendBetaSignupNotification(body.email, body.name, body.company, body.outcomes);
+      // Log results but always return success (lead is captured even if email fails)
+      console.log(`[EmailController] Beta signup: user email ${userEmailResult?.success ? 'sent' : 'failed'}, admin email ${adminEmailResult?.success ? 'sent' : 'failed'}`);
       
+      // Always return success - the signup is captured even if email doesn't send
+      // Client requirement: Don't show SMTP errors to users
       return {
         success: true,
-        message: 'Beta invite email sent successfully',
+        message: 'Thank you for signing up! We\'ll be in touch soon.',
       };
-    } catch (error) {
+    } catch (error: any) {
+      // Even on error, return success with friendly message
+      // The lead info is still captured, email just didn't send
+      console.error('[EmailController] Beta signup error (returning success anyway):', error.message);
       return {
-        success: false,
-        error: error.message,
+        success: true,
+        message: 'Thank you for signing up! We\'ll be in touch soon.',
       };
     }
   }

@@ -42,11 +42,13 @@ export default function BetaSignup() {
         setFormData({ fullName: '', email: '', company: '', outcomes: '' });
         setTimeout(() => setSubmitted(false), 5000);
       } else {
-        setError(data.error || 'Failed to send request. Please try again.');
+        // Don't show technical errors to users - show friendly message
+        console.error('Beta signup error:', data.error);
+        setError('We couldn\'t process your request right now. Please try again or chat with Abby below!');
       }
     } catch (err: any) {
-      setError('Failed to send request. Please check your connection and try again.');
       console.error('Error submitting form:', err);
+      setError('We couldn\'t process your request right now. Please try again or chat with Abby below!');
     } finally {
       setIsLoading(false);
     }
