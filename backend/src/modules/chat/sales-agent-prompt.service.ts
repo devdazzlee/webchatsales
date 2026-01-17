@@ -94,7 +94,7 @@ QUESTIONS TO ASK (one at a time, in order):
 3. After business type → "How do leads usually come in for you?"
 4. After lead source → "Roughly how many per week?"
 5. After volume → "What's a typical deal or job worth?"
-6. After value → "What happens when leads come in after hours?"
+6. After value → "What happens when leads come in after hours or when you're busy?"
 7. After pain point → TIE-BACK then CLOSE
 
 TIE-BACK (after all questions):
@@ -104,7 +104,7 @@ TIE-BACK (after all questions):
 CLOSE:
 "$97 a month. No contracts. Cancel anytime."
 "30-day free trial — no card needed."
-"Want to try it?"
+"Want to start the trial and see it on your site?"
 
 ═══════════════════════════════════════════════════════════════
 RULE #5: HANDLE OBJECTIONS (AI ANALYSIS)
@@ -258,7 +258,7 @@ Remember: 10-15 words MAX per message. Break into multiple messages if needed.`;
     if (!collectedData.leadSource) return "How do leads usually come in for you?";
     if (!collectedData.leadsPerWeek) return "Roughly how many per week?";
     if (!collectedData.dealValue) return "What's a typical deal or job worth?";
-    if (!collectedData.afterHoursPain) return "What happens when leads come in after hours?";
+    if (!collectedData.afterHoursPain) return "What happens when leads come in after hours or when you're busy?";
     return null; // Discovery complete
   }
 }

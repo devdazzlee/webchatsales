@@ -1,344 +1,297 @@
-# End-to-End Testing Guide - Milestone 2
-
-## ✅ Verification Checklist
-
-### 1. Message Saving Verification
-**Status**: ✅ CONFIRMED
-- All user messages are saved via `addMessage(sessionId, 'user', userMessage)` at line 110
-- All assistant responses are saved via `addMessage(sessionId, 'assistant', fullResponse)` at line 197
-- Every message includes: role, content, timestamp
-- Messages are stored in MongoDB `conversations` collection
-- All messages are available for analytics, training, and referral system
-
-### 2. Lead Handling Testing
-
-#### Test 1: Basic Lead Qualification
-1. Open chat widget (bottom-right)
-2. Start conversation: "Hi, I'm interested in your service"
-3. Provide information when asked:
-   - Name: "John Doe"
-   - Email: "john@example.com"
-   - Phone: "+1234567890"
-   - Service need: "Customer service chatbot"
-   - Timing: "ASAP"
-   - Budget: "$500-1000"
-
-**Expected Results:**
-- ✅ Lead automatically created in MongoDB
-- ✅ Admin receives email notification
-- ✅ Lead appears in dashboard `/dashboard?tab=leads`
-- ✅ Lead status is "qualified" when all info provided
-
-#### Test 2: Partial Lead Information
-1. Start conversation
-2. Provide only name and email
-3. Don't provide phone or service need
-
-**Expected Results:**
-- ✅ Lead created with available information
-- ✅ Status remains "new" until fully qualified
-- ✅ Lead still appears in dashboard
-
-### 3. Support Ticket Testing
-
-#### Test 1: Automatic Ticket Creation
-1. Open chat
-2. Express a problem: "I'm having an issue with the login" or "This is broken" or "I'm frustrated"
-3. Continue conversation about the problem
-
-**Expected Results:**
-- ✅ Support ticket automatically created
-- ✅ Ticket ID generated (format: TKT-{timestamp}-{random})
-- ✅ Sentiment analyzed (negative/very_negative)
-- ✅ Priority set based on keywords (high if urgent keywords detected)
-- ✅ Full transcript saved
-- ✅ Ticket appears in dashboard `/dashboard?tab=tickets`
-- ✅ Ticket status is "open"
-
-#### Test 2: Multiple Issues
-1. Start new conversation
-2. Express different types of problems
-3. Check ticket creation
-
-**Expected Results:**
-- ✅ Only one ticket per session (prevents duplicates)
-- ✅ Ticket includes all conversation context
-
-### 4. Payment Integration Testing
-
-#### Test 1: Create Payment Link
-```bash
-curl -X POST http://localhost:9000/api/payment/create-link \
-  -H "Content-Type: application/json" \
-  -d '{
-    "amount": 279.00,
-    "planType": "founder_special",
-    "sessionId": "test_session_123",
-    "userEmail": "test@example.com",
-    "userName": "Test User"
-  }'
-```
-
-**Expected Results:**
-- ✅ Payment link returned
-- ✅ Payment record created in MongoDB with status "pending"
-- ✅ Payment appears in dashboard `/dashboard?tab=payments`
-
-#### Test 2: Webhook Processing
-1. Configure Square webhook to point to: `https://yahir-unscorched-pierre.ngrok-free.dev/api/payment/webhook`
-2. Complete a test payment in Square sandbox
-3. Check webhook received
-
-**Expected Results:**
-- ✅ Webhook received and processed
-- ✅ Payment status updated to "completed"
-- ✅ Confirmation email sent to user
-- ✅ Payment record updated in MongoDB
-
-### 5. Booking Testing
-
-#### Test 1: Create Booking
-```bash
-curl -X POST http://localhost:9000/api/book \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sessionId": "test_session_123",
-    "timeSlot": "2025-12-15T14:00:00Z",
-    "userEmail": "test@example.com",
-    "userName": "Test User",
-    "userPhone": "+1234567890"
-  }'
-```
-
-**Expected Results:**
-- ✅ Booking created in MongoDB
-- ✅ Booking appears in dashboard `/dashboard?tab=bookings`
-- ✅ Status is "scheduled"
-
-#### Test 2: Get Availability
-```bash
-curl http://localhost:9000/api/book/availability?date=2025-12-15
-```
-
-**Expected Results:**
-- ✅ Returns array of available time slots
-- ✅ Slots are in 1-hour intervals (9 AM - 5 PM)
-
-### 6. Dashboard Testing
-
-#### Test 1: Overview Page
-1. Navigate to `/dashboard`
-2. Check overview tab
-
-**Expected Results:**
-- ✅ All statistics displayed correctly
-- ✅ Charts render (conversations over time, leads by status, etc.)
-- ✅ Recent activity shows latest items
-- ✅ All metrics match database counts
-
-#### Test 2: Conversations List
-1. Navigate to `/dashboard?tab=conversations`
-2. Click on a conversation
-
-**Expected Results:**
-- ✅ All conversations listed
-- ✅ Pagination works
-- ✅ Clicking conversation shows full details
-- ✅ All messages displayed with timestamps
-- ✅ Related lead/ticket/booking/payment shown if available
-
-#### Test 3: Leads List
-1. Navigate to `/dashboard?tab=leads`
-2. Filter by status
-
-**Expected Results:**
-- ✅ All leads listed
-- ✅ Status filter works
-- ✅ Pagination works
-- ✅ All lead information displayed
-
-#### Test 4: Tickets List
-1. Navigate to `/dashboard?tab=tickets`
-2. Filter by status
-
-**Expected Results:**
-- ✅ All tickets listed
-- ✅ Priority and sentiment displayed
-- ✅ Status filter works
-- ✅ Pagination works
-
-#### Test 5: Payments List
-1. Navigate to `/dashboard?tab=payments`
-2. Filter by status
-
-**Expected Results:**
-- ✅ All payments listed
-- ✅ Amount and plan type displayed
-- ✅ Status filter works
-- ✅ Revenue calculations correct
-
-#### Test 6: Bookings List
-1. Navigate to `/dashboard?tab=bookings`
-2. Filter by status
-
-**Expected Results:**
-- ✅ All bookings listed
-- ✅ Time slots displayed correctly
-- ✅ Status filter works
-- ✅ Pagination works
-
-### 7. UI/UX Testing
-
-#### Test 1: Removed Buttons
-1. Check header - should NOT have "Talk to Abby" button
-2. Check footer - should NOT have "Chat with Abby" button
-
-**Expected Results:**
-- ✅ Only bottom-right widget button visible
-- ✅ No duplicate buttons
-
-#### Test 2: Founder Special Banner
-1. Check Hero section
-2. Check Pricing section
-
-**Expected Results:**
-- ✅ Banner displays: "Founder Special: $279 for first month (regular $479/mo) • 4 spots left"
-- ✅ Banner visible in both sections
-
-#### Test 3: Functional Buttons
-1. Click "See Pricing" - should scroll to pricing
-2. Click "See it in Action" - should open chat
-3. Click pricing plan buttons - should open chat with plan question
-
-**Expected Results:**
-- ✅ All buttons functional
-- ✅ No dead links
-
-### 8. Widget Testing
-
-#### Test 1: Embeddable Widget
-1. Create test HTML file:
-```html
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Test Widget</title>
-</head>
-<body>
-  <h1>Test Page</h1>
-  <script src="http://localhost:3000/abby-widget.js"></script>
-</body>
-</html>
-```
-
-**Expected Results:**
-- ✅ Widget loads in bottom-right
-- ✅ Button appears
-- ✅ Clicking opens chat
-- ✅ No CSS conflicts
-
-### 9. Data Integrity Testing
-
-#### Test 1: Message Persistence
-1. Start conversation
-2. Send multiple messages
-3. Close and reopen chat
-4. Check conversation history
-
-**Expected Results:**
-- ✅ All messages persist
-- ✅ Conversation history maintained
-- ✅ Timestamps correct
-
-#### Test 2: Lead Association
-1. Create conversation with lead info
-2. Check dashboard conversation details
-
-**Expected Results:**
-- ✅ Lead linked to conversation
-- ✅ All lead data accessible from conversation view
-
-#### Test 3: Support Ticket Association
-1. Create support issue in chat
-2. Check dashboard conversation details
-
-**Expected Results:**
-- ✅ Ticket linked to conversation
-- ✅ Full transcript in ticket
-- ✅ Sentiment and priority set correctly
-
-## 🧪 Automated Testing Scripts
-
-### Test All Endpoints
-```bash
-# Start backend
-cd backend && npm run start:dev
-
-# In another terminal, run tests
-./test-endpoints.sh
-```
-
-### Test Message Saving
-```bash
-# Send test message
-curl -X POST http://localhost:9000/api/chat/message \
-  -H "Content-Type: application/json" \
-  -d '{"sessionId": "test_123", "message": "Test message"}'
-
-# Verify saved
-curl http://localhost:9000/api/chat/conversation/test_123
-```
-
-## 📊 Performance Testing
-
-### Load Test
-1. Send 100 concurrent chat messages
-2. Check response times
-3. Verify all messages saved
-
-**Expected Results:**
-- ✅ All messages saved
-- ✅ Response time < 2 seconds
-- ✅ No data loss
-
-## 🔍 Debugging
-
-### Check MongoDB Collections
-```javascript
-// Connect to MongoDB and verify
-db.conversations.find().count()  // Should match dashboard count
-db.leads.find().count()         // Should match dashboard count
-db.supporttickets.find().count() // Should match dashboard count
-db.payments.find().count()      // Should match dashboard count
-db.bookings.find().count()      // Should match dashboard count
-```
-
-### Check Logs
-```bash
-# Backend logs show:
-# - Message saved: sessionId=..., role=user, messageCount=...
-# - Message saved: sessionId=..., role=assistant, messageCount=...
-# - Lead created for session ...
-# - Support ticket created: TKT-...
-```
-
-## ✅ Final Verification
-
-Before marking as complete, verify:
-- [ ] All user queries saved to DB
-- [ ] All assistant responses saved to DB
-- [ ] Leads automatically extracted and saved
-- [ ] Support tickets automatically created
-- [ ] Payments processed and saved
-- [ ] Bookings created and saved
-- [ ] Dashboard shows all data correctly
-- [ ] All routes functional
-- [ ] No dead links
-- [ ] UI updates complete
-- [ ] Widget embeddable
+# WebChatSales - Client Requirements Testing Guide
+
+## 🎯 Testing Checklist
+
+### 1. ✅ Buying Intent Detection (Skip Qualification)
+
+**Test Case:** When customer shows buying intent, skip all discovery questions and go straight to closing.
+
+**Steps:**
+1. Open chatbot
+2. Immediately say: **"I want to sign up"** or **"How much is it?"** or **"What's the price?"**
+3. **Expected:** Abby should:
+   - NOT ask discovery questions (name, business type, etc.)
+   - Immediately ask: "Great! What's your email?"
+   - Then close: "$97/month. 30-day free trial. Want to try it?"
+
+**Test Variations:**
+- "I want to start"
+- "How do I get started?"
+- "What's the cost?"
+- "I'm ready to buy"
+- "Sign me up"
 
 ---
 
-**Testing Status**: Ready for End-to-End Testing
-**Last Updated**: December 2025
+### 2. ✅ Message Length (10-15 Words MAX)
 
+**Test Case:** All messages should be 10-15 words maximum. Longer thoughts split into 2-3 messages.
+
+**Steps:**
+1. Start a conversation
+2. Ask: "What does this do?"
+3. **Expected:** Abby's response should be:
+   - Multiple short messages (10-15 words each)
+   - NOT one long paragraph
+   - Example:
+     ```
+     "Short version? I answer your website chats 24/7."
+     
+     "Turn them into booked appointments."
+     ```
+
+**Count words in each message** - should be ≤ 15 words per message.
+
+---
+
+### 3. ✅ Abby IS the Demo (No Demo Offers)
+
+**Test Case:** Abby should never offer to "book a demo" or "schedule a call".
+
+**Steps:**
+1. Ask: "How does this work?" or "Can I see a demo?"
+2. **Expected:** Abby should say:
+   - "You're seeing it now!"
+   - "I work just like this on your site 24/7."
+   - "$97/month, free 30-day trial. Want to try it?"
+3. **NOT Expected:** 
+   - ❌ "Let me schedule a demo"
+   - ❌ "Book a call with us"
+   - ❌ "Schedule a consultation"
+
+---
+
+### 4. ✅ 9-Step Qualification Flow (In Order)
+
+**Test Case:** When no buying intent, follow exact 9-step flow.
+
+**Steps:**
+1. Open chatbot
+2. Say: "I'm interested in this"
+3. **Expected Flow:**
+
+   **Step 1:** "Hi, I'm Abby with WebChatSales — welcome. What can I help you with today?"
+   
+   **Step 2:** After you explain → "Got it. Who am I speaking with?"
+   
+   **Step 3:** After name → "What type of business is this?"
+   
+   **Step 4:** After business type → "How do leads usually come in for you?"
+   
+   **Step 5:** After lead source → "Roughly how many per week?"
+   
+   **Step 6:** After volume → "What's a typical deal or job worth?"
+   
+   **Step 7:** After value → "What happens when leads come in after hours?"
+   
+   **Step 8:** After pain point → "That's exactly where WebChatSales helps. Abby responds instantly and books the opportunity."
+   
+   **Step 9:** "Want to start the trial and see it on your site?"
+
+**Verify:** Each question comes in the correct order, one at a time.
+
+---
+
+### 5. ✅ Sound Human (No AI Language)
+
+**Test Case:** Messages should sound like texting a colleague, not a chatbot.
+
+**Check for:**
+- ✅ Uses contractions: "I'm", "you're", "that's", "don't"
+- ✅ No emojis in conversation (only in greeting if any)
+- ❌ No "I'd be happy to help"
+- ❌ No "Feel free to"
+- ❌ No "Please don't hesitate"
+- ❌ No formal language
+
+**Example Good:**
+- "Got it. Who am I speaking with?"
+- "That's where I help most."
+
+**Example Bad:**
+- "I would be delighted to assist you with that."
+- "Please feel free to provide your information."
+
+---
+
+### 6. ✅ UI Stability (No Black Screens)
+
+**Test Case:** Chat UI should be stable, no black screens between messages.
+
+**Steps:**
+1. Start conversation
+2. Send multiple messages quickly
+3. Watch for:
+   - ✅ Smooth message appearance
+   - ✅ No blank/black screens
+   - ✅ "Typing..." indicator works properly
+   - ✅ Messages appear immediately when streaming
+
+**Test Edge Cases:**
+- Send message while previous is still streaming
+- Send multiple messages in quick succession
+- Test with slow network (throttle in DevTools)
+
+---
+
+### 7. ✅ SMTP Error Handling (No Raw Errors to Users)
+
+**Test Case:** SMTP errors should not show raw technical messages to users.
+
+**Steps:**
+1. **Beta Signup Form:**
+   - Go to beta signup page
+   - Fill form and submit
+   - If SMTP fails, should see: "Thank you for signing up! We'll be in touch soon."
+   - ❌ Should NOT see: "535-5.7.8 Authentication failed" or raw SMTP errors
+
+2. **Business Inquiry Form:**
+   - Fill business inquiry form
+   - Submit
+   - If SMTP fails, should see: "Thank you for your inquiry! We'll be in touch soon."
+   - ❌ Should NOT see raw SMTP errors
+
+**How to Test SMTP Failure:**
+- Set wrong `SMTP_PASSWORD` in `.env`
+- Or set `SMTP_EMAIL` to invalid email
+- Submit forms and verify friendly error messages
+
+---
+
+### 8. ✅ Greeting Message
+
+**Test Case:** Initial greeting should match client requirement.
+
+**Steps:**
+1. Open chatbot for first time
+2. **Expected:** 
+   ```
+   "Hi, I'm Abby with WebChatSales — welcome.
+   
+   What can I help you with today?"
+   ```
+3. Should be short, split format (not one long line)
+
+---
+
+### 9. ✅ Objection Handling
+
+**Test Case:** When customer objects, handle naturally.
+
+**Test Scenarios:**
+
+**Price Objection:**
+- User: "That's too expensive"
+- Expected: "Totally fair. How much does one missed lead cost you?"
+
+**Timing Objection:**
+- User: "Not right now" or "Maybe later"
+- Expected: "What usually changes between now and later?"
+
+**Trust Objection:**
+- User: "I'm not sure about this"
+- Expected: "What feels risky — the tech, setup, or results?"
+
+**Then offer:** "Want to try the 30-day free trial and see for yourself?"
+
+---
+
+## 🧪 Quick Test Script
+
+Run this conversation flow to test everything at once:
+
+```
+1. Open chatbot
+2. Say: "I want to sign up" → Should skip to email/close
+3. Close chatbot, reopen
+4. Say: "I'm interested" → Should follow 9-step flow
+5. Answer each question → Verify order
+6. When asked "How does it work?" → Should say "You're seeing it now!"
+7. Count words in each message → Should be ≤ 15 words
+8. Check for contractions and human language → Should sound natural
+```
+
+---
+
+## 🔍 Manual Testing Checklist
+
+Print this and check off as you test:
+
+- [ ] Buying intent detected and skips qualification
+- [ ] All messages are 10-15 words max
+- [ ] Longer thoughts split into multiple messages
+- [ ] Never offers to "book a demo"
+- [ ] Says "You're seeing it now!" when asked how it works
+- [ ] 9-step qualification flow follows exact order
+- [ ] Each question asked one at a time
+- [ ] Sound human (contractions, no formal language)
+- [ ] No black screens between messages
+- [ ] SMTP errors hidden from users (beta signup)
+- [ ] SMTP errors hidden from users (business inquiry)
+- [ ] Greeting message is short and split
+- [ ] Objections handled naturally
+- [ ] No hardcoded word detection (AI analyzes naturally)
+
+---
+
+## 🐛 Common Issues to Watch For
+
+1. **Abby asks too many questions when ready to buy**
+   - Fix: Buying intent detection not working
+   - Check: `sales-agent-prompt.service.ts` Rule #3
+
+2. **Messages too long**
+   - Fix: Message length rule not enforced
+   - Check: `sales-agent-prompt.service.ts` Rule #1
+
+3. **Offers to book demo**
+   - Fix: Demo mode logic still active
+   - Check: `sales-agent-prompt.service.ts` Rule #2
+
+4. **Qualification flow out of order**
+   - Fix: `getNextQualificationQuestion` logic
+   - Check: `chat.service.ts` qualification flow
+
+5. **Black screens**
+   - Fix: Streaming timeout logic
+   - Check: `Chatbot.tsx` streaming handling
+
+6. **Raw SMTP errors shown**
+   - Fix: Error handling in email controller
+   - Check: `email.controller.ts` error responses
+
+---
+
+## 📝 Test Results Template
+
+```
+Date: ___________
+Tester: ___________
+
+Buying Intent: [ ] PASS [ ] FAIL
+Message Length: [ ] PASS [ ] FAIL
+No Demo Offers: [ ] PASS [ ] FAIL
+9-Step Flow: [ ] PASS [ ] FAIL
+Human Language: [ ] PASS [ ] FAIL
+UI Stability: [ ] PASS [ ] FAIL
+SMTP Errors: [ ] PASS [ ] FAIL
+Greeting: [ ] PASS [ ] FAIL
+Objections: [ ] PASS [ ] FAIL
+
+Notes:
+_________________________________
+_________________________________
+_________________________________
+```
+
+---
+
+## 🚀 Automated Testing (Optional)
+
+For automated testing, you can create test scripts that:
+1. Send messages via API
+2. Verify response length (word count)
+3. Check for specific phrases (should/shouldn't appear)
+4. Test conversation flow order
+
+Would you like me to create automated test scripts?

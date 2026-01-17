@@ -634,14 +634,93 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     // Get lead data for context
     const lead = await this.leadService.getLeadBySessionId(sessionId);
 
-    // SENIOR APPROACH: Let AI detect intent naturally through system prompt
-    // No hardcoded word matching - the AI understands context
+    // SENIOR APPROACH: Use AI to detect buying intent from user message
+    // This ensures we skip qualification when user is ready to buy
+    // Only detect if we don't already know the intent (optimization)
+    let hasBuyingIntent = lead?.hasBuyingIntent || false;
+    
+    if (!hasBuyingIntent) {
+      try {
+        const recentMessages = conversation.messages.slice(-3).map((m: any) => 
+          `${m.role === 'user' ? 'User' : 'Abby'}: ${m.content}`
+        ).join('\n');
+
+        const intentDetectionPrompt = `Analyze if the user is showing BUYING INTENT - they want to sign up, purchase, or start immediately.
+
+Buying intent indicators:
+- "I want to sign up"
+- "How much is it?" / "What's the price?" / "What's the cost?"
+- "I want to start" / "How do I get started?" / "How do I begin?"
+- "I'm ready to buy" / "Sign me up" / "Let's do it"
+- "Yes" (when asked if they want to try it)
+- Asking about pricing or how to start
+
+User's recent messages:
+${recentMessages}
+
+Respond with ONLY "YES" if buying intent is detected, or "NO" if not.`;
+
+        const intentResponse = await this.openaiClient.chat.completions.create({
+          model: this.model,
+          messages: [
+            { role: 'system', content: 'You are an intent detection assistant. Respond with ONLY "YES" or "NO".' },
+            { role: 'user', content: intentDetectionPrompt },
+          ],
+          temperature: 0.1,
+          max_tokens: 10,
+        });
+
+        const intentResult = intentResponse.choices[0]?.message?.content?.trim().toUpperCase();
+        hasBuyingIntent = intentResult === 'YES';
+        
+        if (hasBuyingIntent) {
+          console.log(`[ChatService] ✅ Buying intent detected for ${sessionId}`);
+          // Mark lead with buying intent
+          if (lead) {
+            await this.leadService.updateLead(sessionId, { hasBuyingIntent: true });
+            
+            // If lead already has email but is NOT qualified yet, send confirmation email immediately
+            // If lead is already qualified, sendQualifiedLeadNotification will send the email
+            if (lead.email && 
+                /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email.trim()) && 
+                lead.status !== 'qualified') {
+              try {
+                await this.emailService.sendLeadQualificationConfirmation(
+                  lead.email,
+                  lead.name || 'there',
+                  lead.serviceNeed,
+                  lead.timing,
+                  lead.budget
+                );
+                console.log(`[ChatService] ✅ Email confirmation sent to user: ${lead.email} (buying intent detected, email already collected)`);
+              } catch (emailError) {
+                console.error(`[ChatService] Error sending email confirmation:`, emailError);
+              }
+            }
+        } else {
+            // Create lead with buying intent if it doesn't exist yet
+            await this.leadService.createLead({ 
+              sessionId, 
+              hasBuyingIntent: true,
+              status: 'new'
+            });
+          }
+        }
+      } catch (intentError) {
+        console.error(`[ChatService] Error detecting buying intent:`, intentError);
+        // Continue with normal flow if detection fails
+      }
+    } else {
+      console.log(`[ChatService] Buying intent already detected for ${sessionId}`);
+    }
     
     // Determine conversation phase based on collected data (for context in prompt)
-    // The AI will override this if it detects buying intent or objections
+    // If buying intent detected, skip to buying_intent phase
     let conversationPhase: 'opening' | 'discovery' | 'qualification' | 'objection' | 'closing' | 'buying_intent' = 'opening';
     
-    if (!lead?.name) {
+    if (hasBuyingIntent) {
+      conversationPhase = 'buying_intent';
+    } else if (!lead?.name) {
       conversationPhase = 'opening';
     } else if (!lead?.businessType || !lead?.leadSource || !lead?.leadsPerWeek || !lead?.dealValue || !lead?.afterHoursPain) {
       conversationPhase = 'discovery';
@@ -684,6 +763,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
           email: lead?.email,
           phone: lead?.phone,
         },
+        hasBuyingIntent: hasBuyingIntent || lead?.hasBuyingIntent,
       });
 
     // Convert conversation messages to OpenAI format
@@ -1185,16 +1265,24 @@ ${!isDemoMode ? `3a. **Company Extraction (Sales Agent Flow):**
    - Example: "I run a dental practice" → businessType: "dental"
 
 3c. **Lead Source Extraction (NEW 9-STEP FLOW - Step 3):**
-   - Extract when user answers "How do leads usually come in for you?"
-   - Extract lead source description: "Website", "Phone calls", "Referrals", "Google", "Facebook ads"
+   - Extract when user answers "How do leads usually come in for you?" or similar questions about WHERE leads come from
+   - Extract lead source/channel description: "Website", "Phone calls", "Referrals", "Google", "Facebook ads", "Social media", "Email", "Walk-ins"
+   - CRITICAL: This is about the CHANNEL/SOURCE, NOT the number/volume
+   - If user says just a number (like "10"), this is NOT leadSource - it's probably leadsPerWeek
    - Example: "Mostly from our website and Google" → leadSource: "website and Google"
    - Example: "Phone calls and referrals" → leadSource: "phone calls and referrals"
+   - Example: "Facebook ads mostly" → leadSource: "Facebook ads"
+   - Example: User says "10" → leadSource: null (this is volume, not source)
 
 3d. **Leads Per Week Extraction (NEW 9-STEP FLOW - Step 4):**
-   - Extract when user answers "Roughly how many per week?"
-   - Extract the number or description: "10-15", "About 20", "Maybe 5-10"
+   - Extract when user answers "Roughly how many per week?" or similar questions about VOLUME/QUANTITY
+   - Extract the number or description: "10-15", "About 20", "Maybe 5-10", "10", "30 to 40"
+   - CRITICAL: This is about the NUMBER/VOLUME, NOT the source/channel
+   - If user says a channel name (like "website"), this is NOT leadsPerWeek - it's probably leadSource
    - Example: "Probably 15-20 per week" → leadsPerWeek: "15-20"
    - Example: "Not many, maybe 5" → leadsPerWeek: "about 5"
+   - Example: "10" → leadsPerWeek: "10"
+   - Example: "30 to 40" → leadsPerWeek: "30 to 40"
 
 3e. **Deal Value Extraction (NEW 9-STEP FLOW - Step 5):**
    - Extract when user answers "What's a typical deal or job worth?"
@@ -1493,8 +1581,11 @@ Return JSON: ${isDemoMode
           }
           
           // For email: Only save if valid format and not invalid
+          let emailJustAdded = false;
           if (extractedEmail !== null) {
             if (isValidEmail) {
+              // Check if this is a new email (wasn't there before)
+              emailJustAdded = !lead?.email || lead.email !== extractedEmail;
               leadData.email = extractedEmail;
             } else {
               // Invalid email format provided - clear it and mark for feedback
@@ -1680,23 +1771,32 @@ Return JSON: ${isDemoMode
             }
           }
           
-          // Mark as qualified if all fields are collected and valid (including phone)
-          // If budget is unknown, qualified questions must be answered instead (timing is optional)
-          // If budget is known, timing is required (but "unsure" is acceptable)
-          // "unsure" is treated as a valid answer for optional fields (timing, budget)
-          const timingIsValid = !finalTiming || finalTiming.toLowerCase() === 'unsure' || isValidTiming;
-          const budgetIsValid = !finalBudget || finalBudget.toLowerCase() === 'unsure' || budgetIsUnknown || isValidBudget;
+          // NEW 9-STEP FLOW QUALIFICATION CHECK (Client Requirement)
+          // Required fields: name, businessType, leadSource, leadsPerWeek, dealValue, afterHoursPain, email
+          // Phone is optional but preferred
+          const finalBusinessType = leadData.businessType !== undefined ? leadData.businessType : lead?.businessType;
+          const finalLeadSource = leadData.leadSource !== undefined ? leadData.leadSource : lead?.leadSource;
+          const finalLeadsPerWeek = leadData.leadsPerWeek !== undefined ? leadData.leadsPerWeek : lead?.leadsPerWeek;
+          const finalDealValue = leadData.dealValue !== undefined ? leadData.dealValue : lead?.dealValue;
+          const finalAfterHoursPain = leadData.afterHoursPain !== undefined ? leadData.afterHoursPain : lead?.afterHoursPain;
           
-          const hasAllFields = budgetIsUnknown
-            ? (finalName && finalEmail && finalPhone && finalServiceNeed && hasQualifiedQuestions)
-            : (finalName && finalEmail && finalPhone && finalServiceNeed && (finalTiming || finalTiming === 'unsure') && (finalBudget || finalBudget === 'unsure'));
+          // Check if all 9-step flow fields are collected
+          const hasAll9StepFields = finalName && 
+                                   finalBusinessType && 
+                                   finalLeadSource && 
+                                   finalLeadsPerWeek && 
+                                   finalDealValue && 
+                                   finalAfterHoursPain && 
+                                   finalEmail;
+          
+          // All fields valid (email must be valid format)
           const allFieldsValid = isValidName && 
                                 (finalEmail ? isValidEmail : true) &&
-                                (finalPhone ? finalIsValidPhone : true) &&
-                                (finalServiceNeed ? isValidServiceNeed : true) && 
-                                (budgetIsUnknown 
-                                  ? hasQualifiedQuestions 
-                                  : (timingIsValid && budgetIsValid));
+                                (finalPhone ? finalIsValidPhone : true);
+          
+          // For 9-step flow: Email is required, phone is optional
+          // Lead is qualified when all discovery fields + email are collected
+          const hasAllFields = hasAll9StepFields;
           
           if (hasAllFields && allFieldsValid) {
             leadData.status = 'qualified';
@@ -1730,6 +1830,28 @@ Return JSON: ${isDemoMode
             if (leadData._shouldNotify && updatedLead?.status === 'qualified') {
               await this.sendQualifiedLeadNotification(sessionId, updatedLead, conversation);
             }
+            
+            // Send confirmation email when email is first collected
+            // Priority: If buying intent detected, send email immediately when email is collected
+            // Otherwise, send if lead is NOT qualified yet (qualified leads get email from sendQualifiedLeadNotification)
+            const hasBuyingIntentFlag = updatedLead?.hasBuyingIntent || leadData.hasBuyingIntent;
+            const shouldSendEmail = emailJustAdded && updatedLead?.email && isValidEmail && 
+                                   (hasBuyingIntentFlag || updatedLead?.status !== 'qualified');
+            
+            if (shouldSendEmail) {
+              try {
+                await this.emailService.sendLeadQualificationConfirmation(
+                  updatedLead.email,
+                  updatedLead.name || 'there',
+                  updatedLead.serviceNeed,
+                  updatedLead.timing,
+                  updatedLead.budget
+                );
+                console.log(`[ChatService] ✅ Email confirmation sent to user: ${updatedLead.email}${hasBuyingIntentFlag ? ' (buying intent detected)' : ''}`);
+              } catch (emailError) {
+                console.error(`[ChatService] Error sending email confirmation:`, emailError);
+              }
+            }
           } else if (isValidName || isValidEmail || isValidPhone || isValidServiceNeed || isValidTiming || isValidBudget) {
             // Create new lead (will be marked qualified if all fields are present including phone)
             if (isValidName && isValidEmail && isValidPhone && isValidServiceNeed && isValidTiming && isValidBudget) {
@@ -1748,6 +1870,29 @@ Return JSON: ${isDemoMode
               const finalHasAllFields = finalLead.name && finalLead.email && finalLead.phone && finalLead.serviceNeed && finalLead.timing && finalLead.budget;
               if (finalHasAllFields && finalLead.status === 'qualified') {
                 await this.sendQualifiedLeadNotification(sessionId, finalLead, conversation);
+              }
+              
+              // Send email if email is collected (either with buying intent or just collected)
+              // Priority: Send immediately when email is collected, especially with buying intent
+              const hasBuyingIntentNow = finalLead.hasBuyingIntent || leadData.hasBuyingIntent;
+              const shouldSendEmailForNewLead = (hasBuyingIntentNow || emailJustAdded) && 
+                                                 finalLead.email && 
+                                                 isValidEmail && 
+                                                 finalLead.status !== 'qualified';
+              
+              if (shouldSendEmailForNewLead) {
+                try {
+                  await this.emailService.sendLeadQualificationConfirmation(
+                    finalLead.email,
+                    finalLead.name || 'there',
+                    finalLead.serviceNeed,
+                    finalLead.timing,
+                    finalLead.budget
+                  );
+                  console.log(`[ChatService] ✅ Email confirmation sent to user: ${finalLead.email}${hasBuyingIntentNow ? ' (buying intent detected)' : ' (email just collected)'}`);
+                } catch (emailError) {
+                  console.error(`[ChatService] Error sending email confirmation:`, emailError);
+                }
               }
             }
           }
