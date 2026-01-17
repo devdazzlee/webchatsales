@@ -20,6 +20,8 @@ export class LeadService {
     tags?: string[];
     summary?: string;
     conversationId?: string;
+    hasBuyingIntent?: boolean;
+    status?: string;
   }) {
     const lead = new this.leadModel({
       ...leadData,
