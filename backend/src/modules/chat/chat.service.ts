@@ -105,71 +105,26 @@ export class ChatService {
 
   /**
    * Checks if discovery phase is complete
-   * Discovery phase: Opening message + 1-2 discovery questions answered
-   * Returns: { isComplete: boolean, discoveryCount: number, nextDiscoveryQuestion?: string }
+   * SENIOR APPROACH: Count message exchanges, not keywords
+   * The AI decides what to ask based on conversation context
    */
   private async checkDiscoveryPhase(conversation: any): Promise<{ isComplete: boolean; discoveryCount: number; nextDiscoveryQuestion?: string | null }> {
     // Filter to user and assistant messages only
     const messages = (conversation.messages || []).filter((m: any) => m.role !== 'system');
     
-    // Count user responses (these indicate discovery Q&A pairs)
+    // Count exchanges (user-assistant pairs)
     const userMessages = messages.filter((m: any) => m.role === 'user');
-    const userResponseCount = userMessages.length;
+    const assistantMessages = messages.filter((m: any) => m.role === 'assistant');
     
-    // Count discovery questions (assistant messages that are discovery questions)
-    // Discovery questions focus on: lead handling, after-hours coverage, current processes
-    const discoveryKeywords = ['handle', 'handling', 'after hours', 'after-hours', 'inquiries', 'leads', 'website', 'currently', 'process', 'available', 'team'];
-    
-    let discoveryCount = 0;
-    let lastDiscoveryIndex = -1;
-    
-    // Check assistant messages for discovery questions
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-      if (msg.role === 'assistant') {
-        const content = msg.content.toLowerCase();
-        // Check if this is a discovery question (contains discovery keywords and is a question)
-        const isDiscoveryQuestion = discoveryKeywords.some(keyword => content.includes(keyword)) && 
-                                   (content.includes('?') || content.includes('how') || content.includes('what'));
-        if (isDiscoveryQuestion) {
-          discoveryCount++;
-          lastDiscoveryIndex = i;
-        }
-      }
-    }
-    
-    // Discovery is complete if:
-    // 1. We have at least 1 discovery question asked (opening message)
-    // 2. User has responded to it (at least 1 user message)
-    // 3. We can optionally ask 1 more discovery question, then transition to value
-    
-    // Check if user has responded to discovery questions
-    const hasUserResponse = userResponseCount >= 1;
-    
-    // Discovery complete if we have 1-2 discovery Q&A pairs
-    // Complete after: opening discovery Q + user response + (optional) 2nd discovery Q + user response
-    const isComplete = discoveryCount >= 1 && hasUserResponse && (discoveryCount >= 2 || userResponseCount >= 2);
-    
-    // Determine next discovery question if not complete
-    let nextDiscoveryQuestion: string | null = null;
-    if (!isComplete) {
-      if (discoveryCount === 0) {
-        // First discovery question (opening message already asked this)
-        // This shouldn't happen, but handle it
-        nextDiscoveryQuestion = "How are you currently handling incoming website leads, especially after hours?";
-      } else if (discoveryCount === 1 && hasUserResponse && userResponseCount === 1) {
-        // Second discovery question - user answered first one
-        nextDiscoveryQuestion = "What happens to those leads when your team isn't available?";
-      } else if (discoveryCount === 2 && hasUserResponse && userResponseCount === 2) {
-        // Discovery complete - should transition to value
-        // This case is handled by isComplete
-      }
-    }
+    // Discovery is complete after at least 2 exchanges
+    // The AI handles what questions to ask through the system prompt
+    const exchangeCount = Math.min(userMessages.length, assistantMessages.length);
+    const isComplete = exchangeCount >= 2;
     
     return {
-      isComplete: isComplete || (discoveryCount >= 1 && userResponseCount >= 2), // Complete after 2 user responses or 2 discovery Q&A pairs
-      discoveryCount,
-      nextDiscoveryQuestion: isComplete ? null : nextDiscoveryQuestion,
+      isComplete,
+      discoveryCount: assistantMessages.length,
+      nextDiscoveryQuestion: null, // AI decides through system prompt
     };
   }
 
@@ -290,17 +245,28 @@ export class ChatService {
     let hasBudget = false;
     let budgetIsUnknown = false;
     if (existingLead?.budget && existingLead.budget.trim().length > 2) {
-      const budgetLower = existingLead.budget.toLowerCase().trim();
-      // Check if budget is "unknown", "unsure", or "don't know" - these are acceptable
-      budgetIsUnknown = ['unknown', 'not sure', 'unsure', "don't know", "dont know", "haven't decided", "havent decided", "no idea", "haven't thought about it", "havent thought about it"].some(phrase => budgetLower.includes(phrase));
-      
-      if (budgetIsUnknown || budgetLower === 'unsure') {
-        // Budget is marked as unknown/unsure - this is acceptable, move to qualified questions
-        hasBudget = true; // Treat as "answered" so we move forward
-        budgetIsUnknown = true;
-      } else {
-        const isInvalid = await this.isInvalidAnswer(existingLead.budget, 'budget');
-        hasBudget = !isInvalid;
+      // SENIOR APPROACH: Use AI to determine if budget is "unknown" type answer
+      const budgetValue = existingLead.budget.trim();
+      try {
+        const budgetCheckResponse = await this.openaiClient.chat.completions.create({
+          model: this.model,
+          messages: [
+            { 
+              role: 'system', 
+              content: 'Analyze if this budget response indicates the person does not know their budget. Return ONLY "unknown" if they don\'t know, or "known" if they provided a specific budget or range.' 
+            },
+            { role: 'user', content: `Budget response: "${budgetValue}"` },
+          ],
+          temperature: 0.1,
+          max_tokens: 10,
+        });
+        
+        const result = budgetCheckResponse.choices[0]?.message?.content?.trim().toLowerCase() || 'known';
+        budgetIsUnknown = result === 'unknown';
+        hasBudget = true; // Budget was answered (either known or unknown)
+      } catch (error) {
+        // Fallback: if AI fails, check if budget has value
+        hasBudget = budgetValue.length > 0;
       }
     }
 
@@ -610,7 +576,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       nextDiscoveryQuestion: null 
     };
     
-    discoveryPhase = await this.checkDiscoveryPhase(conversation);
+      discoveryPhase = await this.checkDiscoveryPhase(conversation);
     console.log(`[ChatService] Discovery phase check for ${sessionId}:`, discoveryPhase);
     
     // Extract lead data from conversation (this updates the lead in database)
@@ -668,86 +634,24 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     // Get lead data for context
     const lead = await this.leadService.getLeadBySessionId(sessionId);
 
-    // Detect urgency/emergency situations (for client websites)
-    const isUrgent = !isDemoMode && this.salesAgentPrompt.detectUrgency(userMessage);
+    // SENIOR APPROACH: Let AI detect intent naturally through system prompt
+    // No hardcoded word matching - the AI understands context
     
-    // If urgent, notify client immediately (client's email, not lead's email)
-    if (isUrgent) {
-      console.log(`[ChatService] 🚨 URGENT inquiry detected for ${sessionId} - notifying client immediately`);
-      try {
-        // Get client email from environment (this is the business owner's email)
-        const clientEmail = process.env.CLIENT_EMAIL || config.adminEmail;
-        if (clientEmail) {
-          const leadName = lead?.name || 'Unknown';
-          const leadPhone = lead?.phone || 'Not provided yet';
-          const leadEmail = lead?.email || 'Not provided yet';
-          
-          await this.emailService.sendEmail(
-            clientEmail,
-            `🚨 URGENT INQUIRY: ${userMessage.substring(0, 50)}...`,
-            `
-              <h2>🚨 Urgent Inquiry - Immediate Action Required</h2>
-              <div style="background: #fee; padding: 15px; border-left: 4px solid #f00; margin: 10px 0;">
-                <p><strong>URGENT MESSAGE:</strong> ${userMessage}</p>
-              </div>
-              <p><strong>Lead Name:</strong> ${leadName}</p>
-              <p><strong>Lead Phone:</strong> ${leadPhone}</p>
-              <p><strong>Lead Email:</strong> ${leadEmail}</p>
-              <p><strong>Session ID:</strong> ${sessionId}</p>
-              <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-              <p style="color: #f00; font-weight: bold;">⚠️ ACTION REQUIRED: Contact this lead immediately</p>
-            `
-          );
-          console.log(`[ChatService] ✅ Urgent notification sent to client: ${clientEmail}`);
-        } else {
-          console.warn(`[ChatService] ⚠️ CLIENT_EMAIL not set - cannot send urgent notification`);
-        }
-      } catch (error) {
-        console.error(`[ChatService] Error sending urgent notification:`, error);
-      }
-    }
-    
-    // CRITICAL: Detect buying intent FIRST - skip qualification if ready to buy
-    const hasBuyingIntent = !isDemoMode ? this.salesAgentPrompt.detectBuyingIntent(userMessage) : false;
-    
-    if (hasBuyingIntent) {
-      console.log(`[ChatService] 🚀 BUYING INTENT DETECTED for ${sessionId}: "${userMessage.substring(0, 50)}..."`);
-      // Update lead to mark buying intent
-      if (lead) {
-        await this.leadService.updateLead(sessionId, { hasBuyingIntent: true });
-      }
-    }
-    
-    // Detect objections
-    const objectionDetection = !isDemoMode ? this.salesAgentPrompt.detectObjection(userMessage) : { hasObjection: false };
-    const hasObjection = objectionDetection.hasObjection;
-    const objectionType = objectionDetection.objectionType;
-
-    // Determine conversation phase for sales agent mode
-    // NEW FLOW (Jan 2026): 
-    // 1. Opening: Get name
-    // 2. Discovery: businessType, leadSource, leadsPerWeek, dealValue, afterHoursPain
-    // 3. Tie-back (part of discovery completion)
-    // 4. Closing: email, business name, signup
-    // BUYING INTENT: Skip everything and go straight to closing
+    // Determine conversation phase based on collected data (for context in prompt)
+    // The AI will override this if it detects buying intent or objections
     let conversationPhase: 'opening' | 'discovery' | 'qualification' | 'objection' | 'closing' | 'buying_intent' = 'opening';
     
-    if (hasBuyingIntent) {
-      // BUYING INTENT - Skip all qualification, go straight to close
-      conversationPhase = 'buying_intent';
-    } else if (hasObjection) {
-      conversationPhase = 'objection';
-    } else if (!lead?.name) {
+    if (!lead?.name) {
       conversationPhase = 'opening';
     } else if (!lead?.businessType || !lead?.leadSource || !lead?.leadsPerWeek || !lead?.dealValue || !lead?.afterHoursPain) {
       conversationPhase = 'discovery';
-    } else if (!lead?.email || !lead?.phone) {
+    } else if (!lead?.email) {
       conversationPhase = 'qualification';
     } else {
       conversationPhase = 'closing';
     }
     
-    console.log(`[ChatService] Conversation phase for ${sessionId}: ${conversationPhase}`);
+    console.log(`[ChatService] Base conversation phase for ${sessionId}: ${conversationPhase} (AI will analyze intent)`);
 
     // Determine if we're in discovery or qualification phase (for legacy system)
     const isDiscoveryPhase = !discoveryPhase.isComplete;
@@ -760,45 +664,27 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       schedulingLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/book-demo?sessionId=${sessionId}`;
     }
 
-    // Build system prompt - ALWAYS use Sales Agent prompts
-    // CLIENT REQUIREMENT: Abby should always qualify and sell
-    
-    // Get next discovery question using new 9-step flow
-    const salesAgentNextQuestion = this.salesAgentPrompt.getNextDiscoveryQuestion({
-      name: lead?.name,
-      businessType: lead?.businessType,
-      leadSource: lead?.leadSource,
-      leadsPerWeek: lead?.leadsPerWeek,
-      dealValue: lead?.dealValue,
-      afterHoursPain: lead?.afterHoursPain,
-    });
+    // Build system prompt - SENIOR APPROACH
+    // The AI analyzes intent naturally - no hardcoded detection
+    // We just pass collected data for context
     
     const systemPrompt = this.salesAgentPrompt.buildSalesAgentPrompt({
-      conversationPhase,
-      nextQuestion: salesAgentNextQuestion || nextQuestion || undefined,
-      clientContext: {
+        conversationPhase,
+      nextQuestion: null, // AI decides what to ask based on context
+        clientContext: {
         companyName: process.env.CLIENT_COMPANY_NAME || 'WebChatSales',
-        industry: process.env.CLIENT_INDUSTRY,
-        services: process.env.CLIENT_SERVICES?.split(','),
-        location: process.env.CLIENT_LOCATION,
-        businessHours: process.env.CLIENT_BUSINESS_HOURS,
       },
-      hasObjection,
-      objectionType,
-      collectedData: {
-        name: lead?.name,
-        company: lead?.company,
-        businessType: lead?.businessType,
+        collectedData: {
+          name: lead?.name,
+          businessType: lead?.businessType,
         leadSource: lead?.leadSource,
         leadsPerWeek: lead?.leadsPerWeek,
         dealValue: lead?.dealValue,
         afterHoursPain: lead?.afterHoursPain,
-        email: lead?.email,
-        phone: lead?.phone,
-      },
-      isUrgent,
-      hasBuyingIntent,
-    });
+          email: lead?.email,
+          phone: lead?.phone,
+        },
+      });
 
     // Convert conversation messages to OpenAI format
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
@@ -953,10 +839,9 @@ Respond with JSON: {"isSupportIssue": true/false, "reason": "brief explanation",
       return isSupportIssue;
     } catch (error) {
       console.error(`[ChatService] Error detecting support issue:`, error);
-      // Fallback to basic keyword check if AI fails
-      const supportKeywords = ['problem', 'issue', 'complaint', 'error', 'broken', 'not working', 'fix', 'bug', 'wrong', 'broken', 'not working', 'help with', 'disappointed', 'frustrated', 'angry', 'terrible', 'awful'];
-      const userMessageLower = userMessage.toLowerCase();
-      return supportKeywords.some(keyword => userMessageLower.includes(keyword));
+      // SENIOR APPROACH: If AI fails, return false - don't use hardcoded keywords
+      // The AI will naturally handle support issues through the system prompt
+      return false;
     }
   }
 
@@ -1076,20 +961,12 @@ Respond with JSON: {"sentiment": "positive|neutral|negative|very_negative", "con
 
   /**
    * Fallback basic sentiment analysis
+   * SENIOR APPROACH: Return neutral if AI fails - don't use hardcoded word lists
+   * The AI handles sentiment analysis naturally through the prompt
    */
   private analyzeSentimentBasic(messages: any[]): string {
-    const negativeWords = ['bad', 'terrible', 'awful', 'hate', 'disappointed', 'frustrated', 'angry', 'worst', 'horrible'];
-    const veryNegativeWords = ['hate', 'worst', 'horrible', 'terrible', 'awful', 'angry'];
-    
-    const allText = messages.map(m => m.content).join(' ').toLowerCase();
-    
-    const veryNegativeCount = veryNegativeWords.filter(word => allText.includes(word)).length;
-    const negativeCount = negativeWords.filter(word => allText.includes(word)).length;
-    
-    if (veryNegativeCount >= 2) return 'very_negative';
-    if (negativeCount >= 2) return 'negative';
-    if (negativeCount >= 1) return 'neutral';
-    return 'positive';
+    // Default to neutral - the AI will analyze sentiment naturally
+    return 'neutral';
   }
 
   /**
@@ -1665,60 +1542,24 @@ Return JSON: ${isDemoMode
           }
           // If extractedServiceNeed is null, don't set leadData.serviceNeed at all (preserves existing value)
           
-          // Check if timing question was asked but user didn't provide valid answer
-          // If question was asked and answer is invalid/vague, set to "unsure" instead of null
-          const timingQuestionAsked = lastAssistantMessage.toLowerCase().includes('when are you looking') || 
-                                     lastAssistantMessage.toLowerCase().includes('timeline') ||
-                                     lastAssistantMessage.toLowerCase().includes('when do you want to start');
-          
+          // SENIOR APPROACH: Save what AI extracted, don't use hardcoded question detection
+          // The AI naturally handles invalid/vague answers through conversation
           if (extractedTiming !== null) {
             if (isValidTiming) {
               leadData.timing = extractedTiming;
             } else {
-              // If question was asked but answer is invalid, set to "unsure" instead of null
-              if (timingQuestionAsked) {
-                leadData.timing = 'unsure';
-                console.log(`[ChatService] Timing question answered with invalid response - set to "unsure"`);
-              } else {
-                leadData.timing = null;
-                leadData._lastValidationFailure = { field: 'timing', reason: 'Invalid timing format' };
-                console.log(`[ChatService] Invalid timing "${extractedTiming}" provided. Clearing field.`);
-              }
+              // AI will naturally re-ask in the next message
+              console.log(`[ChatService] Timing "${extractedTiming}" not valid - AI will handle naturally`);
             }
-          } else if (timingQuestionAsked && !lead?.timing) {
-            // Question was asked but no answer extracted - set to "unsure"
-            leadData.timing = 'unsure';
-            console.log(`[ChatService] Timing question asked but no answer provided - set to "unsure"`);
           }
           
-          // Check if budget question was asked but user didn't provide valid answer
-          const budgetQuestionAsked = lastAssistantMessage.toLowerCase().includes('budget') || 
-                                     lastAssistantMessage.toLowerCase().includes('how much') ||
-                                     lastAssistantMessage.toLowerCase().includes('price');
-          
+          // SENIOR APPROACH: Save what AI extracted, let AI handle vague answers naturally
           if (extractedBudget !== null) {
-            if (extractedBudget.toLowerCase() === 'unknown' || extractedBudget.toLowerCase().includes('unsure')) {
-              // User said they don't know budget - save as "unknown" (this is acceptable)
-              leadData.budget = 'unknown';
-              console.log(`[ChatService] Budget marked as "unknown" - will ask qualified questions instead.`);
-            } else if (isValidBudget) {
+            if (isValidBudget) {
               leadData.budget = extractedBudget;
             } else {
-              // If question was asked but answer is invalid, set to "unsure" instead of null
-              if (budgetQuestionAsked) {
-                leadData.budget = 'unsure';
-                console.log(`[ChatService] Budget question answered with invalid response - set to "unsure"`);
-              } else {
-                leadData.budget = null;
-                leadData._lastValidationFailure = { field: 'budget', reason: 'Invalid budget format' };
-                console.log(`[ChatService] Invalid budget "${extractedBudget}" provided. Clearing field.`);
-              }
-            }
-          } else if (budgetQuestionAsked && !lead?.budget) {
-            // Question was asked but no answer extracted - set to "unsure" (unless already unknown)
-            if (lead?.budget !== 'unknown') {
-              leadData.budget = 'unsure';
-              console.log(`[ChatService] Budget question asked but no answer provided - set to "unsure"`);
+              // AI will naturally re-ask in the next message
+              console.log(`[ChatService] Budget "${extractedBudget}" not valid - AI will handle naturally`);
             }
           }
           
@@ -1776,27 +1617,38 @@ Return JSON: ${isDemoMode
           
           // Generate tags based on lead data (optional - can be enhanced with AI)
           // Tags are automatically generated based on service need, timing, budget
+          // SENIOR APPROACH: Use AI to generate tags instead of hardcoded keywords
           if (!leadData.tags || leadData.tags.length === 0) {
             const serviceNeed = leadData.serviceNeed || lead?.serviceNeed;
             const timing = leadData.timing || lead?.timing;
             const budget = leadData.budget || lead?.budget;
             
-            // Simple tag generation - can be enhanced with AI
-            const tags: string[] = [];
-            if (serviceNeed) {
-              const serviceLower = serviceNeed.toLowerCase();
-              if (serviceLower.includes('chatbot')) tags.push('chatbot');
-              if (serviceLower.includes('website')) tags.push('website');
-              if (serviceLower.includes('e-commerce') || serviceLower.includes('ecommerce') || serviceLower.includes('shop')) tags.push('e-commerce');
-              if (serviceLower.includes('consultation')) tags.push('consultation');
-            }
-            if (timing) {
-              const timingLower = timing.toLowerCase();
-              if (timingLower.includes('asap') || timingLower.includes('immediately') || timingLower.includes('urgent')) tags.push('urgent');
-            }
-            if (budget) tags.push('budget-specified');
-            if (tags.length > 0) {
-              leadData.tags = tags;
+            if (serviceNeed || timing || budget) {
+              try {
+                const tagResponse = await this.openaiClient.chat.completions.create({
+                  model: this.model,
+                  messages: [
+                    { 
+                      role: 'system', 
+                      content: 'Generate 1-3 relevant tags for this lead. Return ONLY a JSON array of strings. Tags should be lowercase, single words like: chatbot, website, ecommerce, urgent, consultation, budget-specified. Example: ["chatbot", "urgent"]' 
+                    },
+                    { 
+                      role: 'user', 
+                      content: `Service need: ${serviceNeed || 'not specified'}\nTiming: ${timing || 'not specified'}\nBudget: ${budget || 'not specified'}` 
+                    },
+                  ],
+                  temperature: 0.3,
+                  max_tokens: 50,
+                });
+                
+                const tagContent = tagResponse.choices[0]?.message?.content?.trim() || '[]';
+                const parsedTags = JSON.parse(tagContent);
+                if (Array.isArray(parsedTags) && parsedTags.length > 0) {
+                  leadData.tags = parsedTags;
+                }
+              } catch (tagError) {
+                console.log(`[ChatService] Tag generation skipped - AI will handle naturally`);
+              }
             }
           }
 

@@ -46,10 +46,6 @@ export class Lead {
   @Prop()
   afterHoursPain: string;
 
-  // Step 3 alternate name (leadSource)
-  @Prop()
-  leadSource: string;
-
   // Collected during close
   @Prop()
   email: string;

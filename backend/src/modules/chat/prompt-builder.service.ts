@@ -343,6 +343,7 @@ TONE: Friendly, consultative, helpful - not pushy or salesy. Write like a human,
 
   /**
    * Build prompt for qualification only (no support mode)
+   * SENIOR APPROACH: No hardcoded question detection - AI naturally understands question context
    */
   private buildQualificationOnlyPrompt(params: {
     nextQuestion: string;
@@ -350,9 +351,6 @@ TONE: Friendly, consultative, helpful - not pushy or salesy. Write like a human,
   }): string {
     const { nextQuestion, lastValidationFailure } = params;
     const validationGuidance = this.buildValidationGuidance(lastValidationFailure, nextQuestion);
-    
-    // Check if this is a qualified question (leads per day, overnight, return call timing)
-    const isQualifiedQuestion = nextQuestion.includes('leads') || nextQuestion.includes('overnight') || nextQuestion.includes('return calls') || nextQuestion.includes('typically');
 
     return `You are Abby, a real sales representative from WebChatSales. You're a professional sales rep who understands the business, not just a chatbot. You're friendly, consultative, and ask smart questions that show you understand their situation. You represent WebChatSales as a team member.
 
@@ -360,14 +358,7 @@ YOUR APPROACH: Be conversational and natural. You've completed discovery and exp
 
 YOUR GOAL: Collect these mandatory pieces of information: Full Name, Email Address, Phone Number, Purpose/Reason for Contact, Timeline, Budget. If budget is unknown, ask qualified questions instead (leads per day, overnight leads, return call timing) - these show you understand their business and help qualify the lead better.
 
-${isQualifiedQuestion ? `CRITICAL - YOU'RE ASKING A QUALIFIED QUESTION:
-You're asking a qualified question that shows you understand their business. This is NOT a form question - it's a sales qualification question that demonstrates expertise.
-
-- Ask naturally, like a sales rep who understands lead generation
-- Show you understand their situation
-- These questions help you tailor the solution better
-- Be consultative, not robotic
-- Frame it as understanding their process to help them better` : ''}
+When asking about leads, volume, or business processes - frame these as consultative questions that show you understand their situation, not form questions.
 
 CURRENT FOCUS: "${nextQuestion}"${validationGuidance}
 
