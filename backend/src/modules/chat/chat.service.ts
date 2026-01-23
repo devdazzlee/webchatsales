@@ -645,20 +645,34 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
           `${m.role === 'user' ? 'User' : 'Abby'}: ${m.content}`
         ).join('\n');
 
-        const intentDetectionPrompt = `Analyze if the user is showing BUYING INTENT - they want to sign up, purchase, or start immediately.
+        // Check if qualification is complete before allowing buying intent
+        const hasBasicQualification = lead?.name && lead?.businessType && 
+                                      (lead?.leadSource || lead?.leadsPerWeek || lead?.dealValue || lead?.afterHoursPain);
+        
+        const intentDetectionPrompt = `Analyze if the user is showing CLEAR BUYING INTENT - they want to sign up, purchase, or start immediately.
 
-Buying intent indicators:
-- "I want to sign up"
-- "How much is it?" / "What's the price?" / "What's the cost?"
-- "I want to start" / "How do I get started?" / "How do I begin?"
-- "I'm ready to buy" / "Sign me up" / "Let's do it"
+STRONG buying intent indicators (only these should trigger):
+- "I want to sign up" / "Sign me up" / "Let's do it"
+- "How much is it?" / "What's the price?" / "What's the cost?" (asking about pricing)
+- "I'm ready to buy" / "I want to purchase"
 - "Yes" (when asked if they want to try it)
-- Asking about pricing or how to start
+- "Let's start" / "I'm ready to start"
+
+WEAK indicators (do NOT trigger buying intent - these are just questions):
+- "How do I get started?" / "How do I begin?" (could be asking what info is needed)
+- "Tell me what you need" / "What information do you need?" (asking about requirements)
+- "Get me started" (could be asking about process, not ready to buy)
+
+CRITICAL: If the user is asking "what information do you need" or "tell me what you need to get started", 
+this is NOT buying intent - they're asking about the qualification process.
 
 User's recent messages:
 ${recentMessages}
 
-Respond with ONLY "YES" if buying intent is detected, or "NO" if not.`;
+Qualification status: ${hasBasicQualification ? 'Some qualification data exists' : 'No qualification data yet'}
+
+Respond with ONLY "YES" if STRONG buying intent is detected (ready to purchase/sign up), or "NO" if not.
+If they're just asking about requirements or process, respond "NO".`;
 
         const intentResponse = await this.openaiClient.chat.completions.create({
           model: this.model,
@@ -715,11 +729,23 @@ Respond with ONLY "YES" if buying intent is detected, or "NO" if not.`;
     }
     
     // Determine conversation phase based on collected data (for context in prompt)
-    // If buying intent detected, skip to buying_intent phase
+    // CRITICAL: Only skip to buying_intent if qualification is complete OR if it's a clear buying signal
+    // Don't skip qualification just because someone asks "what do you need"
     let conversationPhase: 'opening' | 'discovery' | 'qualification' | 'objection' | 'closing' | 'buying_intent' = 'opening';
     
-    if (hasBuyingIntent) {
+    // Check if basic qualification is complete
+    const hasBasicQualification = lead?.name && lead?.businessType && 
+                                  (lead?.leadSource || lead?.leadsPerWeek || lead?.dealValue || lead?.afterHoursPain);
+    
+    if (hasBuyingIntent && hasBasicQualification) {
+      // Only skip to buying_intent if we have qualification data
       conversationPhase = 'buying_intent';
+    } else if (hasBuyingIntent && !hasBasicQualification) {
+      // Buying intent detected but no qualification - continue qualification first
+      console.log(`[ChatService] Buying intent detected but qualification incomplete - continuing qualification for ${sessionId}`);
+      conversationPhase = 'discovery';
+      // Reset buying intent flag - we'll set it again after qualification
+      hasBuyingIntent = false;
     } else if (!lead?.name) {
       conversationPhase = 'opening';
     } else if (!lead?.businessType || !lead?.leadSource || !lead?.leadsPerWeek || !lead?.dealValue || !lead?.afterHoursPain) {

@@ -315,7 +315,7 @@ export default function Chatbot() {
                 hasReceivedChunk = true;
                 accumulatedText += data.chunk;
                 
-                // Create message on first chunk
+                // Create message on first chunk - keep it simple during streaming
                 if (!assistantMessageId) {
                   assistantMessageId = (Date.now() + 1).toString();
                   setMessages((prev) => [
@@ -330,13 +330,13 @@ export default function Chatbot() {
                 } else {
                   // Throttle updates using requestAnimationFrame for smoother performance
                   requestAnimationFrame(() => {
-                  setMessages((prev) =>
-                    prev.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? { ...msg, text: accumulatedText }
-                        : msg
-                    )
-                  );
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === assistantMessageId
+                          ? { ...msg, text: accumulatedText }
+                          : msg
+                      )
+                    );
                     // Scroll after update
                     throttledScroll();
                   });
@@ -344,6 +344,40 @@ export default function Chatbot() {
               }
               if (data.done) {
                 if (timeoutId) clearTimeout(timeoutId);
+                
+                // Split final message by double newlines into separate message bubbles
+                // This prevents black screens and ensures proper message separation
+                if (accumulatedText.trim()) {
+                  const messageParts = accumulatedText.split(/\n\n+/).filter(part => part.trim());
+                  
+                  if (messageParts.length > 1) {
+                    // Replace the single accumulated message with multiple messages
+                    setMessages((prev) => {
+                      // Remove the accumulated message
+                      const withoutAccumulated = prev.filter(msg => msg.id !== assistantMessageId);
+                      
+                      // Create separate messages for each part
+                      const newMessages: Message[] = messageParts.map((part, idx) => ({
+                        id: idx === 0 ? assistantMessageId! : `${assistantMessageId}-${idx}`,
+                        text: part.trim(),
+                        sender: 'abby' as const,
+                        timestamp: new Date(),
+                      }));
+                      
+                      return [...withoutAccumulated, ...newMessages];
+                    });
+                  } else {
+                    // Single message, just trim it
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === assistantMessageId
+                          ? { ...msg, text: accumulatedText.trim() }
+                          : msg
+                      )
+                    );
+                  }
+                }
+                
                 setIsStreaming(false);
                 setIsLoading(false);
                 // Auto-focus input when streaming completes
@@ -517,7 +551,7 @@ export default function Chatbot() {
               if (data.chunk) {
                 accumulatedText += data.chunk;
                 
-                // Create message on first chunk
+                // Create message on first chunk - keep it simple during streaming
                 if (!assistantMessageId) {
                   assistantMessageId = (Date.now() + 1).toString();
                   setMessages((prev) => [
@@ -532,19 +566,51 @@ export default function Chatbot() {
                 } else {
                   // Throttle updates using requestAnimationFrame for smoother performance
                   requestAnimationFrame(() => {
-                  setMessages((prev) =>
-                    prev.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? { ...msg, text: accumulatedText }
-                        : msg
-                    )
-                  );
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === assistantMessageId
+                          ? { ...msg, text: accumulatedText }
+                          : msg
+                      )
+                    );
                     // Scroll after update
                     throttledScroll();
                   });
                 }
               }
               if (data.done) {
+                // Split final message by double newlines into separate message bubbles
+                if (accumulatedText.trim()) {
+                  const messageParts = accumulatedText.split(/\n\n+/).filter(part => part.trim());
+                  
+                  if (messageParts.length > 1) {
+                    // Replace the single accumulated message with multiple messages
+                    setMessages((prev) => {
+                      // Remove the accumulated message
+                      const withoutAccumulated = prev.filter(msg => msg.id !== assistantMessageId);
+                      
+                      // Create separate messages for each part
+                      const newMessages: Message[] = messageParts.map((part, idx) => ({
+                        id: idx === 0 ? assistantMessageId! : `${assistantMessageId}-${idx}`,
+                        text: part.trim(),
+                        sender: 'abby' as const,
+                        timestamp: new Date(),
+                      }));
+                      
+                      return [...withoutAccumulated, ...newMessages];
+                    });
+                  } else {
+                    // Single message, just trim it
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === assistantMessageId
+                          ? { ...msg, text: accumulatedText.trim() }
+                          : msg
+                      )
+                    );
+                  }
+                }
+                
                 setIsStreaming(false);
                 setIsLoading(false);
               }
@@ -638,7 +704,10 @@ export default function Chatbot() {
           <div 
             ref={messagesContainerRef}
             className="flex-1 overflow-y-auto p-4 space-y-4" 
-            style={{ background: 'var(--bg)' }}
+            style={{ 
+              background: 'var(--bg)',
+              minHeight: '100%',
+            }}
           >
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 space-y-4">
@@ -702,11 +771,11 @@ export default function Chatbot() {
               </div>
             ) : (
               messages
-                .filter((message) => message.text && message.text.replace(/\n/g, '').trim()) // Only show messages with actual content (not just newlines)
+                .filter((message) => message.text && message.text.trim().length > 0) // Only show messages with actual content
                 .map((message) => (
                   <div
                     key={message.id}
-                    className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                    className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} mb-1`}
                   >
                     <div
                       className={`max-w-[80%] rounded-lg p-3 ${
