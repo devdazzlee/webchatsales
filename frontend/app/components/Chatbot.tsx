@@ -265,6 +265,7 @@ export default function Chatbot() {
       let assistantMessageId: string | null = null;
       let accumulatedText = '';
       let hasReceivedChunk = false;
+      let isDoneProcessed = false; // Prevent processing done event multiple times
 
       // FIX FOR BLACK SCREEN: Set a shorter initial timeout
       // If no chunk arrives within 10 seconds, show error
@@ -342,40 +343,32 @@ export default function Chatbot() {
                   });
                 }
               }
-              if (data.done) {
+              if (data.done && !isDoneProcessed) {
+                isDoneProcessed = true; // Mark as processed to prevent duplicate handling
                 if (timeoutId) clearTimeout(timeoutId);
                 
-                // Split final message by double newlines into separate message bubbles
-                // This prevents black screens and ensures proper message separation
-                if (accumulatedText.trim()) {
-                  const messageParts = accumulatedText.split(/\n\n+/).filter(part => part.trim());
-                  
-                  if (messageParts.length > 1) {
-                    // Replace the single accumulated message with multiple messages
-                    setMessages((prev) => {
-                      // Remove the accumulated message
-                      const withoutAccumulated = prev.filter(msg => msg.id !== assistantMessageId);
-                      
-                      // Create separate messages for each part
-                      const newMessages: Message[] = messageParts.map((part, idx) => ({
-                        id: idx === 0 ? assistantMessageId! : `${assistantMessageId}-${idx}`,
-                        text: part.trim(),
-                        sender: 'abby' as const,
-                        timestamp: new Date(),
-                      }));
-                      
-                      return [...withoutAccumulated, ...newMessages];
-                    });
-                  } else {
-                    // Single message, just trim it
-                    setMessages((prev) =>
-                      prev.map((msg) =>
+                // Finalize the message - keep it as one message, don't split
+                if (accumulatedText.trim() && assistantMessageId) {
+                  setMessages((prev) => {
+                    // Ensure we don't create duplicates
+                    const existingIndex = prev.findIndex(msg => msg.id === assistantMessageId);
+                    if (existingIndex >= 0) {
+                      // Update existing message - preserve line breaks but keep as single message
+                      return prev.map((msg) =>
                         msg.id === assistantMessageId
                           ? { ...msg, text: accumulatedText.trim() }
                           : msg
-                      )
-                    );
-                  }
+                      );
+                    } else {
+                      // Message doesn't exist, add it (shouldn't happen, but safety check)
+                      return [...prev, {
+                        id: assistantMessageId!,
+                        text: accumulatedText.trim(),
+                        sender: 'abby' as const,
+                        timestamp: new Date(),
+                      }];
+                    }
+                  });
                 }
                 
                 setIsStreaming(false);
@@ -579,36 +572,15 @@ export default function Chatbot() {
                 }
               }
               if (data.done) {
-                // Split final message by double newlines into separate message bubbles
-                if (accumulatedText.trim()) {
-                  const messageParts = accumulatedText.split(/\n\n+/).filter(part => part.trim());
-                  
-                  if (messageParts.length > 1) {
-                    // Replace the single accumulated message with multiple messages
-                    setMessages((prev) => {
-                      // Remove the accumulated message
-                      const withoutAccumulated = prev.filter(msg => msg.id !== assistantMessageId);
-                      
-                      // Create separate messages for each part
-                      const newMessages: Message[] = messageParts.map((part, idx) => ({
-                        id: idx === 0 ? assistantMessageId! : `${assistantMessageId}-${idx}`,
-                        text: part.trim(),
-                        sender: 'abby' as const,
-                        timestamp: new Date(),
-                      }));
-                      
-                      return [...withoutAccumulated, ...newMessages];
-                    });
-                  } else {
-                    // Single message, just trim it
-                    setMessages((prev) =>
-                      prev.map((msg) =>
-                        msg.id === assistantMessageId
-                          ? { ...msg, text: accumulatedText.trim() }
-                          : msg
-                      )
-                    );
-                  }
+                // Finalize the message - keep it as one message, don't split
+                if (accumulatedText.trim() && assistantMessageId) {
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg.id === assistantMessageId
+                        ? { ...msg, text: accumulatedText.trim() }
+                        : msg
+                    )
+                  );
                 }
                 
                 setIsStreaming(false);
@@ -703,10 +675,9 @@ export default function Chatbot() {
           {/* Messages Area */}
           <div 
             ref={messagesContainerRef}
-            className="flex-1 overflow-y-auto p-4 space-y-4" 
+            className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0" 
             style={{ 
               background: 'var(--bg)',
-              minHeight: '100%',
             }}
           >
             {messages.length === 0 ? (
@@ -772,6 +743,10 @@ export default function Chatbot() {
             ) : (
               messages
                 .filter((message) => message.text && message.text.trim().length > 0) // Only show messages with actual content
+                .filter((message, index, self) => 
+                  // Deduplicate: keep only first occurrence of each unique id+text combination
+                  index === self.findIndex(m => m.id === message.id && m.text === message.text)
+                )
                 .map((message) => (
                   <div
                     key={message.id}
@@ -943,7 +918,7 @@ export default function Chatbot() {
 
           {/* Quick Questions */}
           {messages.length <= 1 && !isLoading && (
-            <div className="px-4 py-2 border-t" style={{ background: 'var(--panel)', borderColor: 'var(--line)' }}>
+            <div className="px-4 py-2 border-t flex-shrink-0" style={{ background: 'var(--panel)', borderColor: 'var(--line)' }}>
               <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>Quick questions:</p>
               <div className="flex flex-col gap-2">
                 {quickQuestions.map((question, idx) => (
@@ -969,7 +944,7 @@ export default function Chatbot() {
           )}
 
           {/* Input Area */}
-          <form onSubmit={handleSendMessage} className="p-4 border-t" style={{ background: 'var(--panel)', borderColor: 'var(--line)' }}>
+          <form onSubmit={handleSendMessage} className="p-4 border-t flex-shrink-0" style={{ background: 'var(--panel)', borderColor: 'var(--line)' }}>
             <div className="flex gap-2">
               <input
                 ref={inputRef}
@@ -978,14 +953,26 @@ export default function Chatbot() {
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder="Type your message..."
                 disabled={isLoading}
-                className="flex-1 px-4 py-2 border rounded disabled:opacity-50"
+                className="flex-1 px-4 py-2.5 border-2 rounded-lg disabled:opacity-50"
                 style={{ 
-                  background: 'var(--bg)', 
-                  borderColor: 'var(--line)', 
-                  color: 'var(--ink)'
+                  background: '#0f1f18', 
+                  borderColor: '#1a4a3a', 
+                  color: '#e9fff6',
+                  outline: 'none',
+                  fontSize: '14px',
+                  minHeight: '44px',
+                  fontWeight: '400'
                 }}
-                onFocus={(e) => e.target.style.borderColor = 'var(--emerald)'}
-                onBlur={(e) => e.target.style.borderColor = 'var(--line)'}
+                onFocus={(e) => {
+                  e.target.style.borderColor = 'var(--emerald)';
+                  e.target.style.background = '#0f1f18';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(0, 255, 153, 0.2)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#1a4a3a';
+                  e.target.style.background = '#0f1f18';
+                  e.target.style.boxShadow = 'none';
+                }}
               />
               <button
                 type="submit"

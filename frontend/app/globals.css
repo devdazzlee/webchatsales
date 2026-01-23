@@ -72,7 +72,17 @@ body {
 /* Placeholder styles */
 ::placeholder {
   color: var(--muted);
-  opacity: 0.6;
+  opacity: 0.7;
+}
+
+/* Input field visibility */
+input[type="text"] {
+  color: var(--ink) !important;
+}
+
+input[type="text"]::placeholder {
+  color: var(--muted) !important;
+  opacity: 0.8 !important;
 }
 
 /* Fix list styling in chat messages */
