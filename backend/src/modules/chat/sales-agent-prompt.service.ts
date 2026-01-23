@@ -239,6 +239,7 @@ Option 3 - Honest redirect:
 
 For price concerns: "Totally fair. How much is your average job cost?"
 "It pays for itself."
+"One booked lead pays for a month of service."
 "23% of all leads come after hours."
 "50 percent of those leads go with the first company they talk to."
 
