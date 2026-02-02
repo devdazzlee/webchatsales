@@ -277,14 +277,14 @@ export default function Chatbot() {
           setIsStreaming(false);
           setIsLoading(false);
           
-          // If no chunks received at all, show error message
+          // If no chunks received at all, show error message with alternative contact
           if (!hasReceivedChunk) {
             const errorId = (Date.now() + 1).toString();
             setMessages((prev) => [
               ...prev,
               {
                 id: errorId,
-                text: 'Sorry, I\'m taking too long to respond. Please try again.',
+                text: 'Sorry, I\'m taking too long to respond.\n\nPlease try sending your message again.\n\nOr reach us directly at **hello@webchatsales.com**',
                 sender: 'abby',
                 timestamp: new Date(),
               },
@@ -426,13 +426,14 @@ export default function Chatbot() {
       // Only add error message if no assistant message was created
       if (!hasAssistantMessage) {
         const errorMessageId = (Date.now() + 1).toString();
+        const errorText = isConnectionError 
+          ? 'Sorry, I\'m having trouble connecting right now.\n\nYou can reach us directly:\n\n**Email:** hello@webchatsales.com\n\n**Or** try refreshing the page and sending your message again.'
+          : 'Sorry, I ran into an issue processing that.\n\nLet me try again - please resend your message.\n\nOr reach us at **hello@webchatsales.com** if this keeps happening.';
         setMessages((prev) => [
           ...prev,
           {
             id: errorMessageId,
-            text: isConnectionError 
-              ? 'Sorry, I\'m unable to connect to the server right now. Please check your connection and try again.'
-              : 'Sorry, I encountered an error. Please try again.',
+            text: errorText,
             sender: 'abby',
             timestamp: new Date(),
           },
@@ -602,7 +603,7 @@ export default function Chatbot() {
         ...prev,
         {
           id: errorMessageId,
-          text: 'Sorry, I encountered an error. Please try again.',
+          text: 'Sorry, I ran into an issue.\n\nPlease try sending your message again.\n\nOr reach us at **hello@webchatsales.com**',
           sender: 'abby',
           timestamp: new Date(),
         },

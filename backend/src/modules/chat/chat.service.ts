@@ -546,11 +546,17 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     // Get lead state BEFORE extraction to detect validation failures
     const leadBeforeExtraction = await this.leadService.getLeadBySessionId(sessionId);
     
-    // AI-powered support issue detection - check if user is expressing a problem/issue/complaint
-    // MUST happen BEFORE generating response so Abby can acknowledge ticket creation
-    const hasSupportIssue = await this.detectSupportIssue(userMessage, conversation);
+    // ROOT CAUSE FIX: Skip expensive AI-powered support detection for normal conversations
+    // Use quick keyword check first - only call AI for potential support issues
+    // This reduces OpenAI API calls from 7+ to 2-3 per message
+    const potentialSupportKeywords = /\b(error|broken|not working|bug|issue|problem|help|frustrated|disappointed|doesn't work|can't|won't|failed|wrong)\b/i;
+    const mightBeSupportIssue = potentialSupportKeywords.test(userMessage);
+    
     let newlyCreatedTicket: any = null;
     
+    // Only do expensive AI detection if keywords suggest support issue
+    if (mightBeSupportIssue) {
+      const hasSupportIssue = await this.detectSupportIssue(userMessage, conversation);
     if (hasSupportIssue) {
       console.log(`[ChatService] 🔴 Support issue detected for session ${sessionId} - creating ticket before response`);
       try {
@@ -558,7 +564,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       } catch (error) {
         console.error(`[ChatService] ⚠️ Error creating support ticket:`, error);
         // Continue with response generation even if ticket creation fails
-        // User experience should not be blocked by ticket creation errors
+        }
       }
     }
     
@@ -634,67 +640,28 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     // Get lead data for context
     const lead = await this.leadService.getLeadBySessionId(sessionId);
 
-    // SENIOR APPROACH: Use AI to detect buying intent from user message
-    // This ensures we skip qualification when user is ready to buy
-    // Only detect if we don't already know the intent (optimization)
+    // ROOT CAUSE FIX: Use fast pattern matching for buying intent instead of OpenAI API call
+    // This eliminates 1 API call per message - reduces crashes significantly
     let hasBuyingIntent = lead?.hasBuyingIntent || false;
     
     if (!hasBuyingIntent) {
-      try {
-        const recentMessages = conversation.messages.slice(-3).map((m: any) => 
-          `${m.role === 'user' ? 'User' : 'Abby'}: ${m.content}`
-        ).join('\n');
-
-        // Check if qualification is complete before allowing buying intent
-        const hasBasicQualification = lead?.name && lead?.businessType && 
-                                      (lead?.leadSource || lead?.leadsPerWeek || lead?.dealValue || lead?.afterHoursPain);
-        
-        const intentDetectionPrompt = `Analyze if the user is showing CLEAR BUYING INTENT - they want to sign up, purchase, or start immediately.
-
-STRONG buying intent indicators (only these should trigger):
-- "I want to sign up" / "Sign me up" / "Let's do it"
-- "How much is it?" / "What's the price?" / "What's the cost?" (asking about pricing)
-- "I'm ready to buy" / "I want to purchase"
-- "Yes" (when asked if they want to try it)
-- "Let's start" / "I'm ready to start"
-
-WEAK indicators (do NOT trigger buying intent - these are just questions):
-- "How do I get started?" / "How do I begin?" (could be asking what info is needed)
-- "Tell me what you need" / "What information do you need?" (asking about requirements)
-- "Get me started" (could be asking about process, not ready to buy)
-
-CRITICAL: If the user is asking "what information do you need" or "tell me what you need to get started", 
-this is NOT buying intent - they're asking about the qualification process.
-
-User's recent messages:
-${recentMessages}
-
-Qualification status: ${hasBasicQualification ? 'Some qualification data exists' : 'No qualification data yet'}
-
-Respond with ONLY "YES" if STRONG buying intent is detected (ready to purchase/sign up), or "NO" if not.
-If they're just asking about requirements or process, respond "NO".`;
-
-        const intentResponse = await this.openaiClient.chat.completions.create({
-          model: this.model,
-          messages: [
-            { role: 'system', content: 'You are an intent detection assistant. Respond with ONLY "YES" or "NO".' },
-            { role: 'user', content: intentDetectionPrompt },
-          ],
-          temperature: 0.1,
-          max_tokens: 10,
-        });
-
-        const intentResult = intentResponse.choices[0]?.message?.content?.trim().toUpperCase();
-        hasBuyingIntent = intentResult === 'YES';
+      // Fast pattern-based detection - no AI call needed for obvious cases
+      const strongBuyingPatterns = /\b(sign me up|let's do it|i want to sign up|i'm ready|let's start|yes let's|yeah let's|i'll try it|sounds good let's|let's go|i'm in|count me in|how much|what's the price|what's the cost|how do i pay|ready to buy|want to purchase)\b/i;
+      const weakPatterns = /\b(what information|what do you need|tell me what you need|how do i get started|what's required)\b/i;
+      
+      const messageLower = userMessage.toLowerCase();
+      const isStrongIntent = strongBuyingPatterns.test(messageLower);
+      const isWeakIntent = weakPatterns.test(messageLower);
+      
+      // Only count as buying intent if strong pattern matches and no weak pattern
+      hasBuyingIntent = isStrongIntent && !isWeakIntent;
         
         if (hasBuyingIntent) {
-          console.log(`[ChatService] ✅ Buying intent detected for ${sessionId}`);
-          // Mark lead with buying intent
+        console.log(`[ChatService] ✅ Buying intent detected (pattern match) for ${sessionId}`);
           if (lead) {
             await this.leadService.updateLead(sessionId, { hasBuyingIntent: true });
             
-            // If lead already has email but is NOT qualified yet, send confirmation email immediately
-            // If lead is already qualified, sendQualifiedLeadNotification will send the email
+          // Send email if lead has email but is not qualified yet
             if (lead.email && 
                 /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lead.email.trim()) && 
                 lead.status !== 'qualified') {
@@ -706,23 +673,18 @@ If they're just asking about requirements or process, respond "NO".`;
                   lead.timing,
                   lead.budget
                 );
-                console.log(`[ChatService] ✅ Email confirmation sent to user: ${lead.email} (buying intent detected, email already collected)`);
+              console.log(`[ChatService] ✅ Email confirmation sent to user: ${lead.email}`);
               } catch (emailError) {
                 console.error(`[ChatService] Error sending email confirmation:`, emailError);
               }
             }
         } else {
-            // Create lead with buying intent if it doesn't exist yet
             await this.leadService.createLead({ 
               sessionId, 
               hasBuyingIntent: true,
               status: 'new'
             });
           }
-        }
-      } catch (intentError) {
-        console.error(`[ChatService] Error detecting buying intent:`, intentError);
-        // Continue with normal flow if detection fails
       }
     } else {
       console.log(`[ChatService] Buying intent already detected for ${sessionId}`);
@@ -814,8 +776,17 @@ If they're just asking about requirements or process, respond "NO".`;
     console.log(`[ChatService] Calling OpenAI API with model: ${this.model}, message count: ${messages.length}`);
     
     let fullResponse = '';
+    const maxRetries = 2;
+    let lastError: any = null;
     
-    try {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`[ChatService] Retry attempt ${attempt}/${maxRetries} for sessionId: ${sessionId}`);
+          // Exponential backoff: 1s, 2s
+          await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+        }
+        
       // Call OpenAI API with streaming
       const stream = await this.openaiClient.chat.completions.create({
         model: this.model,
@@ -842,27 +813,41 @@ If they're just asking about requirements or process, respond "NO".`;
         
         // Process conversation for lead qualification (support detection already done earlier)
         // Note: Support ticket creation already happened before generating response
+          return; // Success - exit the retry loop
       } else {
         console.error(`[ChatService] ERROR: Empty response from AI!`);
         throw new Error('AI returned empty response');
       }
       
     } catch (aiError: any) {
-      console.error(`[ChatService] OpenAI API error for sessionId ${sessionId}:`, aiError);
+        lastError = aiError;
+        console.error(`[ChatService] OpenAI API error (attempt ${attempt + 1}/${maxRetries + 1}) for sessionId ${sessionId}:`, aiError?.message || aiError);
       
-      // If we got a partial response, save it before throwing
+        // If we got a partial response, save it and don't retry
       if (fullResponse && fullResponse.trim()) {
         try {
           await this.addMessage(sessionId, 'assistant', fullResponse);
           console.log(`[ChatService] Saved partial response (${fullResponse.length} chars) after error`);
+            return; // Don't retry if we have partial content
         } catch (saveError) {
           console.error(`[ChatService] Error saving partial response:`, saveError);
         }
       }
       
-      // Re-throw the error so controller can handle it
-      throw aiError;
+        // Don't retry on certain errors
+        const noRetryErrors = ['invalid_api_key', 'insufficient_quota', 'rate_limit_exceeded'];
+        if (aiError?.code && noRetryErrors.includes(aiError.code)) {
+          console.error(`[ChatService] Non-retryable error: ${aiError.code}`);
+          break;
+        }
+        
+        // Continue to next retry attempt
+      }
     }
+    
+    // All retries exhausted, throw the last error
+    console.error(`[ChatService] All retry attempts exhausted for sessionId ${sessionId}`);
+    throw lastError || new Error('Failed to get AI response after retries');
   }
 
   async getAllConversations(limit = 50) {
@@ -953,8 +938,7 @@ Respond with JSON: {"isSupportIssue": true/false, "reason": "brief explanation",
 
   /**
    * Handle support issue - automatically create ticket with all required fields
-   * This is the core support handling logic that ensures proper ticket creation
-   * Returns the created ticket so caller can use ticket ID in response
+   * ROOT CAUSE FIX: Combined 3 AI calls into 1 to prevent API overload/crashes
    */
   private async handleSupportIssue(sessionId: string, conversation: any): Promise<any> {
     try {
@@ -968,14 +952,13 @@ Respond with JSON: {"isSupportIssue": true/false, "reason": "brief explanation",
       // Get lead information if available
       const lead = await this.leadService.getLeadBySessionId(sessionId);
 
-      // AI-powered sentiment analysis
-      const sentimentResult = await this.analyzeSentimentAI(conversation.messages);
+      // ROOT CAUSE FIX: Combine sentiment + priority + summary into ONE API call
+      // This reduces 3 API calls to 1, significantly reducing crash risk
+      const analysisResult = await this.analyzeTicketInOneCall(conversation.messages, lead);
       
-      // AI-powered priority determination
-      const priorityResult = await this.determinePriority(conversation.messages, sentimentResult.sentiment);
-      
-      // Generate comprehensive summary using AI
-      const summary = await this.generateSupportSummary(conversation.messages, lead);
+      const sentimentResult = { sentiment: analysisResult.sentiment, confidence: 0.8 };
+      const priorityResult = { priority: analysisResult.priority, reason: analysisResult.priorityReason };
+      const summary = analysisResult.summary;
 
       // Create full transcript with timestamps
       const transcript = conversation.messages
@@ -1016,6 +999,68 @@ Respond with JSON: {"isSupportIssue": true/false, "reason": "brief explanation",
     } catch (error) {
       console.error(`[ChatService] Error handling support issue:`, error);
       return null;
+    }
+  }
+
+  /**
+   * ROOT CAUSE FIX: Combined ticket analysis - sentiment + priority + summary in ONE API call
+   * Reduces 3 API calls to 1 to prevent rate limits and crashes
+   */
+  private async analyzeTicketInOneCall(messages: any[], lead?: any): Promise<{
+    sentiment: string;
+    priority: string;
+    priorityReason: string;
+    summary: string;
+  }> {
+    try {
+      const conversationText = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+
+      const combinedPrompt = `Analyze this support conversation and provide sentiment, priority, and summary in ONE response.
+
+Conversation:
+${conversationText}
+
+${lead ? `User Info: ${lead.name}${lead.email ? ` (${lead.email})` : ''}` : ''}
+
+Analyze and return JSON with:
+1. sentiment: "positive", "neutral", "negative", or "very_negative"
+2. priority: "low", "medium", "high", or "urgent"
+3. priorityReason: brief explanation (10 words max)
+4. summary: 2-3 sentence summary of the issue
+
+Return JSON: {"sentiment": "...", "priority": "...", "priorityReason": "...", "summary": "..."}`;
+
+      const response = await this.openaiClient.chat.completions.create({
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a support ticket analysis assistant. Analyze conversations and return structured JSON.'
+          },
+          { role: 'user', content: combinedPrompt },
+        ],
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        max_tokens: 300,
+      });
+
+      const result = JSON.parse(response.choices[0].message.content || '{}');
+      
+      return {
+        sentiment: result.sentiment || 'neutral',
+        priority: ['low', 'medium', 'high', 'urgent'].includes(result.priority) ? result.priority : 'medium',
+        priorityReason: result.priorityReason || 'Automatic assignment',
+        summary: result.summary || 'Support issue reported by user',
+      };
+    } catch (error) {
+      console.error(`[ChatService] Error in combined ticket analysis:`, error);
+      // Fallback values
+      return {
+        sentiment: 'neutral',
+        priority: 'medium',
+        priorityReason: 'Fallback assignment',
+        summary: 'Support issue reported by user',
+      };
     }
   }
 
@@ -1290,37 +1335,48 @@ ${!isDemoMode ? `3a. **Company Extraction (Sales Agent Flow):**
    - Example: "We're a plumbing company" → businessType: "plumbing"
    - Example: "I run a dental practice" → businessType: "dental"
 
-3c. **Lead Source Extraction (NEW 9-STEP FLOW - Step 3):**
-   - Extract when user answers "How do leads usually come in for you?" or similar questions about WHERE leads come from
-   - Extract lead source/channel description: "Website", "Phone calls", "Referrals", "Google", "Facebook ads", "Social media", "Email", "Walk-ins"
+3c. **Lead Source Extraction (SEMANTIC - NOT QUESTION-SPECIFIC):**
+   - Extract from ANY mention of WHERE/HOW leads come in, not just from a specific question
+   - Sources include: "Website", "Phone calls", "Referrals", "Google", "Facebook ads", "Social media", "Email", "Walk-ins"
    - CRITICAL: This is about the CHANNEL/SOURCE, NOT the number/volume
    - If user says just a number (like "10"), this is NOT leadSource - it's probably leadsPerWeek
-   - Example: "Mostly from our website and Google" → leadSource: "website and Google"
-   - Example: "Phone calls and referrals" → leadSource: "phone calls and referrals"
-   - Example: "Facebook ads mostly" → leadSource: "Facebook ads"
-   - Example: User says "10" → leadSource: null (this is volume, not source)
+   - Examples that should ALL extract leadSource:
+     * "Mostly from our website and Google" → leadSource: "website and Google"
+     * "Phone calls and referrals" → leadSource: "phone calls and referrals"
+     * "Most of my jobs come from word of mouth" → leadSource: "word of mouth"
+     * "People find us on Facebook mostly" → leadSource: "Facebook"
 
-3d. **Leads Per Week Extraction (NEW 9-STEP FLOW - Step 4):**
-   - Extract when user answers "Roughly how many per week?" or similar questions about VOLUME/QUANTITY
-   - Extract the number or description: "10-15", "About 20", "Maybe 5-10", "10", "30 to 40"
+3d. **Leads Per Week Extraction (SEMANTIC - NOT QUESTION-SPECIFIC):**
+   - Extract from ANY mention of lead volume/quantity, not just from a specific question
+   - Extract numbers: "10-15", "About 20", "Maybe 5-10", "8 to 10 a week"
    - CRITICAL: This is about the NUMBER/VOLUME, NOT the source/channel
-   - If user says a channel name (like "website"), this is NOT leadsPerWeek - it's probably leadSource
-   - Example: "Probably 15-20 per week" → leadsPerWeek: "15-20"
-   - Example: "Not many, maybe 5" → leadsPerWeek: "about 5"
-   - Example: "10" → leadsPerWeek: "10"
-   - Example: "30 to 40" → leadsPerWeek: "30 to 40"
+   - Examples that should ALL extract leadsPerWeek:
+     * "Probably 15-20 per week" → leadsPerWeek: "15-20"
+     * "Maybe 8 to 10 a week" → leadsPerWeek: "8-10"
+     * "I probably miss half of them" (with context of 10 leads) → leadsPerWeek: "about 10, misses half"
+     * "Not many, maybe 5" → leadsPerWeek: "about 5"
 
-3e. **Deal Value Extraction (NEW 9-STEP FLOW - Step 5):**
-   - Extract when user answers "What's a typical deal or job worth?"
-   - Extract the dollar amount or range: "$500", "$2000-5000", "A few hundred"
-   - Example: "Average job is about $1500" → dealValue: "$1500"
-   - Example: "Anywhere from $500 to $3000" → dealValue: "$500-3000"
+3e. **Deal Value Extraction (SEMANTIC - NOT QUESTION-SPECIFIC):**
+   - Extract from ANY mention of job costs/prices/values, not just from a specific question
+   - Extract dollar amounts or ranges: "$500", "$2000-5000", "A few hundred"
+   - Examples that should ALL extract dealValue:
+     * "Average job is about $1500" → dealValue: "$1500"
+     * "Regular job is maybe $200 to $300. Emergency ones can be $500 or more" → dealValue: "$200-500+"
+     * "Those emergency ones are $500 or more easy" → dealValue: "$500+"
+     * "A few hundred bucks usually" → dealValue: "few hundred"
 
-3f. **After-Hours Pain Extraction (NEW 9-STEP FLOW - Step 6):**
-   - Extract when user answers "What happens when leads come in after hours or when you're busy?"
-   - Extract the pain point description: "We miss them", "Go to voicemail", "Nobody answers"
-   - Example: "They usually go to voicemail and we lose them" → afterHoursPain: "go to voicemail, lose leads"
-   - Example: "We try to call back but often too late" → afterHoursPain: "call back too late"
+3f. **After-Hours Pain Extraction (CRITICAL - SEMANTIC UNDERSTANDING):**
+   - Extract from ANY message where user describes issues with after-hours leads, missed calls, or losing leads
+   - DO NOT wait for a specific question - extract if they MENTION the pain ANYWHERE in conversation
+   - Look for semantic meaning: missed calls, after hours, lose leads, competitors get them first, can't respond in time, voicemail, busy working
+   - Examples that should ALL extract afterHoursPain:
+     * "Missing calls after hours is the biggest one" → afterHoursPain: "missing calls after hours"
+     * "By the time I call back half of them have already found someone else" → afterHoursPain: "lose leads to competitors"
+     * "I miss calls when I'm on a job" → afterHoursPain: "miss calls when busy"
+     * "Evening calls go to voicemail" → afterHoursPain: "calls go to voicemail"
+     * "They usually go to voicemail and we lose them" → afterHoursPain: "go to voicemail, lose leads"
+     * "We try to call back but often too late" → afterHoursPain: "call back too late"
+   - CRITICAL: If user mentioned ANYTHING about losing leads, missing calls, or after-hours issues ANYWHERE in conversation, extract it!
 
 ` : ''}4. **Service Need Extraction (Purpose/Reason for Contact):**
    - Extract from DECLARATIVE statements: "I need X", "I want X", "I'm looking for X", "my business is X", "I'm in X", "I do X"

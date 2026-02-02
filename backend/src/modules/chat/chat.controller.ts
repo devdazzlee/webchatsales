@@ -64,7 +64,7 @@ export class ChatController {
         hasError = true;
         console.error(`[ChatController] ❌ ERROR: No chunks received from AI for sessionId: ${sessionId}`);
         if (res.writable) {
-          res.write(`data: ${JSON.stringify({ error: 'No response from AI. Please try again.', done: true })}\n\n`);
+          res.write(`data: ${JSON.stringify({ error: 'I ran into a temporary issue. Please try sending your message again, or reach us at hello@webchatsales.com', done: true })}\n\n`);
         }
       }
       
@@ -81,9 +81,10 @@ export class ChatController {
         stack: error?.stack?.substring(0, 200)
       });
       
-      const errorMessage = error?.message || 'An error occurred. Please try again.';
+      // Provide user-friendly error message with alternative contact option
+      const userFriendlyError = 'I ran into a temporary issue. Please try sending your message again, or reach us at hello@webchatsales.com';
       if (res.writable && !res.headersSent) {
-        res.write(`data: ${JSON.stringify({ error: errorMessage, done: true })}\n\n`);
+        res.write(`data: ${JSON.stringify({ error: userFriendlyError, done: true })}\n\n`);
         res.end();
       }
     }
