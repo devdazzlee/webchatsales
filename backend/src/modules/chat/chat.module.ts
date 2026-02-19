@@ -9,6 +9,7 @@ import { LeadModule } from '../lead/lead.module';
 import { SupportModule } from '../support/support.module';
 import { EmailModule } from '../email/email.module';
 import { BookingModule } from '../booking/booking.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { BookingModule } from '../booking/booking.module';
     SupportModule,
     EmailModule,
     BookingModule,
+    NotificationModule,
   ],
   controllers: [ChatController],
   providers: [ChatService, PromptBuilderService, SalesAgentPromptService],

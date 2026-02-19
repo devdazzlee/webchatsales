@@ -8,6 +8,7 @@ import { LeadService } from '../lead/lead.service';
 import { SupportService } from '../support/support.service';
 import { EmailService } from '../email/email.service';
 import { BookingService } from '../booking/booking.service';
+import { NotificationService } from '../notification/notification.service';
 import { PromptBuilderService } from './prompt-builder.service';
 import { SalesAgentPromptService } from './sales-agent-prompt.service';
 import { config } from '../../config/config';
@@ -24,6 +25,7 @@ export class ChatService {
     private supportService: SupportService,
     private emailService: EmailService,
     private bookingService: BookingService,
+    private notificationService: NotificationService,
     private promptBuilder: PromptBuilderService,
     private salesAgentPrompt: SalesAgentPromptService,
   ) {
@@ -543,6 +545,20 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       throw new Error('Failed to retrieve conversation after adding message');
     }
 
+    // 🔔 NOTIFICATION: New conversation alert (fires on first user message only)
+    const userMessagesCount = conversation.messages.filter((m: any) => m.role === 'user').length;
+    if (userMessagesCount === 1) {
+      // Fire and forget - don't block the response
+      this.notificationService.notifyNewConversation({
+        sessionId,
+        firstMessage: userMessage,
+        userName: conversation.userName,
+        userEmail: conversation.userEmail,
+        timestamp: new Date(),
+      }).catch(err => console.error('[ChatService] Error sending new conversation notification:', err));
+      console.log(`[ChatService] 🔔 New conversation notification triggered for ${sessionId}`);
+    }
+
     // Get lead state BEFORE extraction to detect validation failures
     const leadBeforeExtraction = await this.leadService.getLeadBySessionId(sessionId);
     
@@ -561,6 +577,20 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       console.log(`[ChatService] 🔴 Support issue detected for session ${sessionId} - creating ticket before response`);
       try {
         newlyCreatedTicket = await this.handleSupportIssue(sessionId, conversation);
+        
+        // 🔔 NOTIFICATION: Missed question / support issue alert
+        const existingLead = await this.leadService.getLeadBySessionId(sessionId);
+        this.notificationService.notifyMissedQuestion({
+          sessionId,
+          userMessage,
+          userName: existingLead?.name || conversation.userName,
+          userEmail: existingLead?.email || conversation.userEmail,
+          ticketId: newlyCreatedTicket?.ticketId || newlyCreatedTicket?._id?.toString(),
+          summary: newlyCreatedTicket?.summary,
+          sentiment: newlyCreatedTicket?.sentiment,
+          timestamp: new Date(),
+        }).catch(err => console.error('[ChatService] Error sending missed question notification:', err));
+        console.log(`[ChatService] 🔔 Missed question notification triggered for ${sessionId}`);
       } catch (error) {
         console.error(`[ChatService] ⚠️ Error creating support ticket:`, error);
         // Continue with response generation even if ticket creation fails
@@ -1911,6 +1941,29 @@ Return JSON: ${isDemoMode
             // Send notification if lead just became qualified
             if (leadData._shouldNotify && updatedLead?.status === 'qualified') {
               await this.sendQualifiedLeadNotification(sessionId, updatedLead, conversation);
+              
+              // 🔔 NOTIFICATION: Qualified lead alert to client
+              const transcriptHtml = conversation.messages
+                ?.map((msg: any) => `<div style="margin-bottom: 10px; padding: 8px; background: ${msg.role === 'user' ? '#e3f2fd' : '#f5f5f5'}; border-radius: 4px;"><strong>${msg.role === 'user' ? 'Visitor' : 'Abby'}:</strong> ${msg.content.replace(/\n/g, '<br>')}</div>`)
+                .join('') || '';
+              this.notificationService.notifyQualifiedLead({
+                sessionId,
+                name: updatedLead.name,
+                email: updatedLead.email,
+                phone: updatedLead.phone,
+                businessType: updatedLead.businessType,
+                leadSource: updatedLead.leadSource,
+                leadsPerWeek: updatedLead.leadsPerWeek,
+                dealValue: updatedLead.dealValue,
+                afterHoursPain: updatedLead.afterHoursPain,
+                serviceNeed: updatedLead.serviceNeed,
+                timing: updatedLead.timing,
+                budget: updatedLead.budget,
+                summary: updatedLead.summary,
+                conversationTranscript: transcriptHtml,
+                timestamp: new Date(),
+              }).catch(err => console.error('[ChatService] Error sending qualified lead client notification:', err));
+              console.log(`[ChatService] 🔔 Qualified lead notification triggered for ${sessionId}`);
             }
             
             // Send confirmation email when email is first collected
@@ -1945,6 +1998,17 @@ Return JSON: ${isDemoMode
               hasAllFields: !!(isValidName && isValidEmail && isValidPhone && isValidServiceNeed && isValidTiming && isValidBudget)
             });
 
+            // 🔔 NOTIFICATION: New lead captured alert (first time lead info is collected)
+            this.notificationService.notifyNewLead({
+              sessionId,
+              name: leadData.name,
+              email: leadData.email,
+              phone: leadData.phone,
+              serviceNeed: leadData.serviceNeed,
+              timestamp: new Date(),
+            }).catch(err => console.error('[ChatService] Error sending new lead notification:', err));
+            console.log(`[ChatService] 🔔 New lead notification triggered for ${sessionId}`);
+
             // If lead is qualified (has all required fields including phone), send transcript to admin
             // Check final state after creation
             const finalLead = await this.leadService.getLeadBySessionId(sessionId);
@@ -1952,6 +2016,28 @@ Return JSON: ${isDemoMode
               const finalHasAllFields = finalLead.name && finalLead.email && finalLead.phone && finalLead.serviceNeed && finalLead.timing && finalLead.budget;
               if (finalHasAllFields && finalLead.status === 'qualified') {
                 await this.sendQualifiedLeadNotification(sessionId, finalLead, conversation);
+                
+                // 🔔 NOTIFICATION: Qualified lead alert (from new lead creation path)
+                const transcriptHtml2 = conversation.messages
+                  ?.map((msg: any) => `<div style="margin-bottom: 10px; padding: 8px; background: ${msg.role === 'user' ? '#e3f2fd' : '#f5f5f5'}; border-radius: 4px;"><strong>${msg.role === 'user' ? 'Visitor' : 'Abby'}:</strong> ${msg.content.replace(/\n/g, '<br>')}</div>`)
+                  .join('') || '';
+                this.notificationService.notifyQualifiedLead({
+                  sessionId,
+                  name: finalLead.name,
+                  email: finalLead.email,
+                  phone: finalLead.phone,
+                  businessType: finalLead.businessType,
+                  leadSource: finalLead.leadSource,
+                  leadsPerWeek: finalLead.leadsPerWeek,
+                  dealValue: finalLead.dealValue,
+                  afterHoursPain: finalLead.afterHoursPain,
+                  serviceNeed: finalLead.serviceNeed,
+                  timing: finalLead.timing,
+                  budget: finalLead.budget,
+                  summary: finalLead.summary,
+                  conversationTranscript: transcriptHtml2,
+                  timestamp: new Date(),
+                }).catch(err => console.error('[ChatService] Error sending qualified lead client notification:', err));
               }
               
               // Send email if email is collected (either with buying intent or just collected)

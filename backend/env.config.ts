@@ -19,6 +19,10 @@ export const envConfigExample = {
   // Admin Email (Optional - falls back to SMTP_EMAIL)
   ADMIN_EMAIL: 'your_admin_email@gmail.com',
   
+  // Notification Email - receives real-time alerts for new conversations, leads, missed questions
+  // Defaults to muaz786m786@gmail.com if not set
+  NOTIFICATION_EMAIL: 'muaz786m786@gmail.com',
+  
   // Server Configuration
   PORT: '9000',
   NODE_ENV: 'development',
