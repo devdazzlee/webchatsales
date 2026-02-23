@@ -11,7 +11,7 @@ async function bootstrap() {
     const tenantService = app.get(TenantService);
 
     const name = process.env.SEED_TENANT_NAME || 'WebChatSales Default';
-    const ownerEmail = process.env.SEED_TENANT_OWNER_EMAIL || 'owner@webchatsales.com';
+    const ownerEmail = process.env.SEED_TENANT_OWNER_EMAIL || 'matthew@webchatsales.com';
     const notificationEmail = process.env.SEED_TENANT_NOTIFICATION_EMAIL || ownerEmail;
 
     const requiredDomains = [
@@ -50,6 +50,7 @@ async function bootstrap() {
     );
 
     const updated = await tenantService.updateClient(existing._id, {
+      ownerEmail,
       allowedDomains: mergedDomains,
       notificationEmail,
       isActive: true,

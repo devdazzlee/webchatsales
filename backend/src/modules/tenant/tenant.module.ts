@@ -4,6 +4,7 @@ import { Client, ClientSchema } from '../../schemas/client.schema';
 import { TenantService } from './tenant.service';
 import { TenantGuard } from './tenant.guard';
 import { TenantController } from './tenant.controller';
+import { AuthModule } from '../auth/auth.module';
 
 /**
  * TenantModule — Global multi-tenant foundation
@@ -15,6 +16,7 @@ import { TenantController } from './tenant.controller';
 @Global()
 @Module({
   imports: [
+    AuthModule,
     MongooseModule.forFeature([
       { name: Client.name, schema: ClientSchema },
     ]),
