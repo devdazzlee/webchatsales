@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Schema as MongooseSchema } from 'mongoose';
 
 export type ConversationDocument = Conversation & Document;
 
@@ -11,6 +11,9 @@ const MessageSchema = {
 
 @Schema({ timestamps: true })
 export class Conversation {
+  @Prop({ required: true, type: MongooseSchema.Types.ObjectId, ref: 'Client', index: true })
+  clientId: MongooseSchema.Types.ObjectId;
+
   @Prop({ required: true, unique: true })
   sessionId: string;
 
@@ -38,6 +41,7 @@ export class Conversation {
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);
+ConversationSchema.index({ clientId: 1, sessionId: 1 });
+ConversationSchema.index({ clientId: 1, createdAt: -1 });
 ConversationSchema.index({ sessionId: 1 });
-ConversationSchema.index({ createdAt: -1 });
 

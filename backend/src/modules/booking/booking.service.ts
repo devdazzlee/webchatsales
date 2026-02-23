@@ -9,7 +9,7 @@ export class BookingService {
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
   ) {}
 
-  async createBooking(bookingData: {
+  async createBooking(clientId: string, bookingData: {
     sessionId: string;
     timeSlot: Date;
     schedulingLink?: string;
@@ -22,43 +22,44 @@ export class BookingService {
   }) {
     const booking = new this.bookingModel({
       ...bookingData,
+      clientId,
       bookedAt: new Date(),
     });
     return booking.save();
   }
 
-  async updateBookingStatus(bookingId: string, status: string) {
-    return this.bookingModel.findByIdAndUpdate(
-      bookingId,
+  async updateBookingStatus(clientId: string, bookingId: string, status: string) {
+    return this.bookingModel.findOneAndUpdate(
+      { _id: bookingId, clientId },
       { status },
       { new: true }
     ).exec();
   }
 
-  async getBookingById(bookingId: string) {
-    return this.bookingModel.findById(bookingId).exec();
+  async getBookingById(clientId: string, bookingId: string) {
+    return this.bookingModel.findOne({ _id: bookingId, clientId }).exec();
   }
 
-  async getBookingBySessionId(sessionId: string) {
-    return this.bookingModel.findOne({ sessionId }).sort({ createdAt: -1 }).exec();
+  async getBookingBySessionId(clientId: string, sessionId: string) {
+    return this.bookingModel.findOne({ clientId, sessionId }).sort({ createdAt: -1 }).exec();
   }
 
-  async getAllBookings(limit = 50) {
+  async getAllBookings(clientId: string, limit = 50) {
     return this.bookingModel
-      .find()
+      .find({ clientId })
       .sort({ createdAt: -1 })
       .limit(limit)
       .exec();
   }
 
-  async getBookingsByStatus(status: string) {
+  async getBookingsByStatus(clientId: string, status: string) {
     return this.bookingModel
-      .find({ status })
+      .find({ clientId, status })
       .sort({ createdAt: -1 })
       .exec();
   }
 
-  async getAvailability(date: Date) {
+  async getAvailability(clientId: string, date: Date) {
     // Generate all possible time slots for the date
     // Only show availability after 4:30 PM and until 9:00 PM
     const slots = [];
@@ -84,7 +85,7 @@ export class BookingService {
       }
     }
     
-    // Get all booked slots for this date (scheduled or confirmed status)
+    // Get all booked slots for this date (scheduled or confirmed status) — scoped to client
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
@@ -92,8 +93,9 @@ export class BookingService {
     
     const bookedSlots = await this.bookingModel
       .find({
+        clientId,
         timeSlot: { $gte: startOfDay, $lte: endOfDay },
-        status: { $in: ['scheduled', 'confirmed'] }, // Only count active bookings
+        status: { $in: ['scheduled', 'confirmed'] },
       })
       .select('timeSlot')
       .exec();
@@ -102,7 +104,6 @@ export class BookingService {
     const bookedTimes = bookedSlots.map(booking => {
       const bookedDate = new Date(booking.timeSlot);
       bookedDate.setSeconds(0, 0);
-      // Round to nearest 30 minutes
       const minutes = bookedDate.getMinutes();
       bookedDate.setMinutes(minutes < 30 ? 0 : 30);
       return bookedDate.getTime();
@@ -118,21 +119,20 @@ export class BookingService {
   }
 
   /**
-   * Check if a specific time slot is available
+   * Check if a specific time slot is available for a client
    */
-  async isTimeSlotAvailable(timeSlot: Date): Promise<boolean> {
-    // Round to nearest 30 minutes for comparison
+  async isTimeSlotAvailable(clientId: string, timeSlot: Date): Promise<boolean> {
     const slot = new Date(timeSlot);
     slot.setSeconds(0, 0);
     const minutes = slot.getMinutes();
     slot.setMinutes(minutes < 30 ? 0 : 30);
     
-    // Check if there's an existing booking at this time (scheduled or confirmed)
     const existingBooking = await this.bookingModel
       .findOne({
+        clientId,
         timeSlot: {
-          $gte: new Date(slot.getTime() - 15 * 60 * 1000), // 15 min before
-          $lte: new Date(slot.getTime() + 15 * 60 * 1000), // 15 min after
+          $gte: new Date(slot.getTime() - 15 * 60 * 1000),
+          $lte: new Date(slot.getTime() + 15 * 60 * 1000),
         },
         status: { $in: ['scheduled', 'confirmed'] },
       })
@@ -142,17 +142,17 @@ export class BookingService {
   }
 
   /**
-   * Check if a user (sessionId) already has a booking
+   * Check if a user (sessionId) already has a booking for a client
    */
-  async hasExistingBooking(sessionId: string): Promise<boolean> {
+  async hasExistingBooking(clientId: string, sessionId: string): Promise<boolean> {
     const existingBooking = await this.bookingModel
       .findOne({
+        clientId,
         sessionId,
-        status: { $in: ['scheduled', 'confirmed'] }, // Only count active bookings
+        status: { $in: ['scheduled', 'confirmed'] },
       })
       .exec();
     
     return !!existingBooking;
   }
 }
-

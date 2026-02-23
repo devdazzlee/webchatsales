@@ -9,7 +9,7 @@ export class LeadService {
     @InjectModel(Lead.name) private leadModel: Model<LeadDocument>,
   ) {}
 
-  async createLead(leadData: {
+  async createLead(clientId: string, leadData: {
     sessionId: string;
     name?: string;
     email?: string;
@@ -25,12 +25,13 @@ export class LeadService {
   }) {
     const lead = new this.leadModel({
       ...leadData,
+      clientId,
       qualifiedAt: new Date(),
     });
     return lead.save();
   }
 
-  async updateLead(sessionId: string, updateData: Partial<Lead>) {
+  async updateLead(clientId: string, sessionId: string, updateData: Partial<Lead>) {
     // Use $set to properly handle null values (to clear fields)
     const setData: any = {};
     Object.keys(updateData).forEach(key => {
@@ -40,33 +41,32 @@ export class LeadService {
     });
     
     return this.leadModel.findOneAndUpdate(
-      { sessionId },
+      { clientId, sessionId },
       { $set: setData },
       { new: true, upsert: false }
     ).exec();
   }
 
-  async getLeadBySessionId(sessionId: string) {
-    return this.leadModel.findOne({ sessionId }).exec();
+  async getLeadBySessionId(clientId: string, sessionId: string) {
+    return this.leadModel.findOne({ clientId, sessionId }).exec();
   }
 
-  async getLeadByEmail(email: string) {
-    return this.leadModel.findOne({ email }).exec();
+  async getLeadByEmail(clientId: string, email: string) {
+    return this.leadModel.findOne({ clientId, email }).exec();
   }
 
-  async getAllLeads(limit = 50) {
+  async getAllLeads(clientId: string, limit = 50) {
     return this.leadModel
-      .find()
+      .find({ clientId })
       .sort({ createdAt: -1 })
       .limit(limit)
       .exec();
   }
 
-  async getLeadsByStatus(status: string) {
+  async getLeadsByStatus(clientId: string, status: string) {
     return this.leadModel
-      .find({ status })
+      .find({ clientId, status })
       .sort({ createdAt: -1 })
       .exec();
   }
 }
-

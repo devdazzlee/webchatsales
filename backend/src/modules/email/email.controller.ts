@@ -1,8 +1,11 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { EmailService } from './email.service';
 import { ChatService } from '../chat/chat.service';
+import { ClientId, SkipTenant } from '../tenant/tenant.decorator';
+import { TenantGuard } from '../tenant/tenant.guard';
 
 @Controller('api/email')
+@UseGuards(TenantGuard)
 export class EmailController {
   constructor(
     private readonly emailService: EmailService,
@@ -10,6 +13,7 @@ export class EmailController {
   ) {}
 
   @Post('send-beta-invite')
+  @SkipTenant() // Public-facing endpoint — no tenant context required
   async sendBetaInvite(@Body() body: { email: string; name: string; company?: string; outcomes?: string }) {
     try {
       // Try to send emails, but don't fail if email service is not configured
@@ -37,9 +41,12 @@ export class EmailController {
   }
 
   @Post('send-transcript')
-  async sendTranscript(@Body() body: { email: string; sessionId: string }) {
+  async sendTranscript(
+    @ClientId() clientId: string,
+    @Body() body: { email: string; sessionId: string },
+  ) {
     try {
-      const conversation = await this.chatService.getConversation(body.sessionId);
+      const conversation = await this.chatService.getConversation(clientId, body.sessionId);
       if (!conversation) {
         return {
           success: false,
@@ -52,7 +59,7 @@ export class EmailController {
         success: true,
         message: 'Transcript sent successfully',
       };
-    } catch (error) {
+    } catch (error: any) {
       return {
         success: false,
         error: error.message,
@@ -61,6 +68,7 @@ export class EmailController {
   }
 
   @Post('business-inquiry')
+  @SkipTenant() // Public-facing endpoint — no tenant context required
   async handleBusinessInquiry(@Body() body: {
     name: string;
     email: string;
@@ -105,4 +113,3 @@ export class EmailController {
     }
   }
 }
-

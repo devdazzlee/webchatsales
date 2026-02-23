@@ -8,6 +8,7 @@
     "dev": "ts-node --transpile-only src/main.ts",
     "start:dev": "ts-node --transpile-only src/main.ts",
     "start:watch": "ts-node --watch --transpile-only src/main.ts",
+    "seed:tenants": "ts-node --transpile-only src/scripts/seed-tenants.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

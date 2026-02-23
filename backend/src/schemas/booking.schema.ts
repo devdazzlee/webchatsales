@@ -1,10 +1,13 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Schema as MongooseSchema } from 'mongoose';
 
 export type BookingDocument = Booking & Document;
 
 @Schema({ timestamps: true })
 export class Booking {
+  @Prop({ required: true, type: MongooseSchema.Types.ObjectId, ref: 'Client', index: true })
+  clientId: MongooseSchema.Types.ObjectId;
+
   @Prop({ required: true })
   sessionId: string;
 
@@ -40,9 +43,10 @@ export class Booking {
 }
 
 export const BookingSchema = SchemaFactory.createForClass(Booking);
+BookingSchema.index({ clientId: 1, sessionId: 1 });
+BookingSchema.index({ clientId: 1, leadId: 1 });
+BookingSchema.index({ clientId: 1, timeSlot: 1 });
+BookingSchema.index({ clientId: 1, status: 1 });
+BookingSchema.index({ clientId: 1, createdAt: -1 });
 BookingSchema.index({ sessionId: 1 });
-BookingSchema.index({ leadId: 1 });
-BookingSchema.index({ timeSlot: 1 });
-BookingSchema.index({ status: 1 });
-BookingSchema.index({ createdAt: -1 });
 

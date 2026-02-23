@@ -15,7 +15,7 @@ export class SupportService {
     return `TKT-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
   }
 
-  async createSupportTicket(ticketData: {
+  async createSupportTicket(clientId: string, ticketData: {
     sessionId: string;
     transcript: string;
     sentiment?: string;
@@ -29,9 +29,10 @@ export class SupportService {
     const ticketId = this.generateTicketId();
     const ticket = new this.supportTicketModel({
       ...ticketData,
+      clientId,
       ticketId,
       openedAt: new Date(),
-      status: 'open', // Ensure status is set
+      status: 'open',
       priority: ticketData.priority || 'medium',
     });
     const savedTicket = await ticket.save();
@@ -67,46 +68,45 @@ export class SupportService {
     return savedTicket;
   }
 
-  async updateTicketStatus(ticketId: string, status: string) {
+  async updateTicketStatus(clientId: string, ticketId: string, status: string) {
     const updateData: any = { status };
     if (status === 'resolved' || status === 'closed') {
       updateData.resolvedAt = new Date();
     }
     return this.supportTicketModel.findOneAndUpdate(
-      { ticketId },
+      { clientId, ticketId },
       updateData,
       { new: true }
     ).exec();
   }
 
-  async getTicketByTicketId(ticketId: string) {
-    return this.supportTicketModel.findOne({ ticketId }).exec();
+  async getTicketByTicketId(clientId: string, ticketId: string) {
+    return this.supportTicketModel.findOne({ clientId, ticketId }).exec();
   }
 
-  async getTicketBySessionId(sessionId: string) {
-    return this.supportTicketModel.findOne({ sessionId }).sort({ createdAt: -1 }).exec();
+  async getTicketBySessionId(clientId: string, sessionId: string) {
+    return this.supportTicketModel.findOne({ clientId, sessionId }).sort({ createdAt: -1 }).exec();
   }
 
-  async getAllTickets(limit = 50) {
+  async getAllTickets(clientId: string, limit = 50) {
     return this.supportTicketModel
-      .find()
+      .find({ clientId })
       .sort({ createdAt: -1 })
       .limit(limit)
       .exec();
   }
 
-  async getTicketsByStatus(status: string) {
+  async getTicketsByStatus(clientId: string, status: string) {
     return this.supportTicketModel
-      .find({ status })
+      .find({ clientId, status })
       .sort({ createdAt: -1 })
       .exec();
   }
 
-  async getTicketsByPriority(priority: string) {
+  async getTicketsByPriority(clientId: string, priority: string) {
     return this.supportTicketModel
-      .find({ priority })
+      .find({ clientId, priority })
       .sort({ createdAt: -1 })
       .exec();
   }
 }
-

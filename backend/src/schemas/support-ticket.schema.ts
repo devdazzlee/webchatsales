@@ -1,10 +1,13 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Schema as MongooseSchema } from 'mongoose';
 
 export type SupportTicketDocument = SupportTicket & Document;
 
 @Schema({ timestamps: true })
 export class SupportTicket {
+  @Prop({ required: true, type: MongooseSchema.Types.ObjectId, ref: 'Client', index: true })
+  clientId: MongooseSchema.Types.ObjectId;
+
   @Prop({ required: true, unique: true })
   ticketId: string;
 
@@ -46,9 +49,10 @@ export class SupportTicket {
 }
 
 export const SupportTicketSchema = SchemaFactory.createForClass(SupportTicket);
+SupportTicketSchema.index({ clientId: 1, ticketId: 1 });
+SupportTicketSchema.index({ clientId: 1, sessionId: 1 });
+SupportTicketSchema.index({ clientId: 1, status: 1 });
+SupportTicketSchema.index({ clientId: 1, createdAt: -1 });
+SupportTicketSchema.index({ clientId: 1, priority: 1 });
 SupportTicketSchema.index({ ticketId: 1 });
-SupportTicketSchema.index({ sessionId: 1 });
-SupportTicketSchema.index({ status: 1 });
-SupportTicketSchema.index({ createdAt: -1 });
-SupportTicketSchema.index({ priority: 1 });
 

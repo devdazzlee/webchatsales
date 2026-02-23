@@ -1,26 +1,33 @@
-import { Controller, Post, Get, Body, Param, Query, Req, Headers, RawBodyRequest } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, Req, Headers, RawBodyRequest, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { PaymentService } from './payment.service';
+import { ClientId, SkipTenant } from '../tenant/tenant.decorator';
+import { TenantGuard } from '../tenant/tenant.guard';
 
 @Controller('api/payment')
+@UseGuards(TenantGuard)
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
   @Post('create-link')
-  async createPaymentLink(@Body() body: {
-    amount: number;
-    planType: string;
-    sessionId: string;
-    userEmail?: string;
-    userName?: string;
-  }) {
+  async createPaymentLink(
+    @ClientId() clientId: string,
+    @Body() body: {
+      amount: number;
+      planType: string;
+      sessionId: string;
+      userEmail?: string;
+      userName?: string;
+    },
+  ) {
     try {
       const result = await this.paymentService.createPaymentLink(
+        clientId,
         body.amount,
         body.planType,
         body.sessionId,
         body.userEmail,
-        body.userName
+        body.userName,
       );
       return result;
     } catch (error: any) {
@@ -33,24 +40,21 @@ export class PaymentController {
   }
 
   @Post('webhook')
+  @SkipTenant() // Webhooks come from Square, no tenant context in headers
   async handleWebhook(
     @Req() req: RawBodyRequest<Request>,
     @Headers('x-square-signature') signature: string,
     @Body() body: any,
   ) {
     try {
-      // Use body directly (NestJS parses JSON automatically)
       const webhookData = body || req.body;
-      
       const payload = JSON.stringify(webhookData);
       const url = req.url;
       
-      // Verify webhook (simplified for now - in production, verify Square signature)
       const isValid = await this.paymentService.verifyWebhook(signature, payload, url);
       
       if (!isValid) {
         console.warn('[PaymentController] Webhook signature verification failed');
-        // Still process in development, but log warning
       }
 
       await this.paymentService.handleWebhook(webhookData);
@@ -62,8 +66,11 @@ export class PaymentController {
   }
 
   @Get(':paymentId')
-  async getPayment(@Param('paymentId') paymentId: string) {
-    const payment = await this.paymentService.getPaymentById(paymentId);
+  async getPayment(
+    @ClientId() clientId: string,
+    @Param('paymentId') paymentId: string,
+  ) {
+    const payment = await this.paymentService.getPaymentById(clientId, paymentId);
     return {
       success: true,
       payment,
@@ -71,8 +78,11 @@ export class PaymentController {
   }
 
   @Get('session/:sessionId')
-  async getPaymentBySession(@Param('sessionId') sessionId: string) {
-    const payment = await this.paymentService.getPaymentBySessionId(sessionId);
+  async getPaymentBySession(
+    @ClientId() clientId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    const payment = await this.paymentService.getPaymentBySessionId(clientId, sessionId);
     return {
       success: true,
       payment,
@@ -80,9 +90,13 @@ export class PaymentController {
   }
 
   @Get('all')
-  async getAllPayments(@Query('limit') limit?: string) {
+  async getAllPayments(
+    @ClientId() clientId: string,
+    @Query('limit') limit?: string,
+  ) {
     const payments = await this.paymentService.getAllPayments(
-      limit ? parseInt(limit) : 50
+      clientId,
+      limit ? parseInt(limit) : 50,
     );
     return {
       success: true,
@@ -91,35 +105,39 @@ export class PaymentController {
   }
 
   @Post('process')
-  async processPayment(@Body() body: {
-    sourceId: string;
-    amount: number;
-    planType: string;
-    sessionId: string;
-    userEmail?: string;
-    userName?: string;
-    billingContact?: {
-      givenName?: string;
-      familyName?: string;
-      email?: string;
-      address?: {
-        addressLine1?: string;
-        addressLine2?: string;
-        city?: string;
-        countryCode?: string;
-        postalCode?: string;
+  async processPayment(
+    @ClientId() clientId: string,
+    @Body() body: {
+      sourceId: string;
+      amount: number;
+      planType: string;
+      sessionId: string;
+      userEmail?: string;
+      userName?: string;
+      billingContact?: {
+        givenName?: string;
+        familyName?: string;
+        email?: string;
+        address?: {
+          addressLine1?: string;
+          addressLine2?: string;
+          city?: string;
+          countryCode?: string;
+          postalCode?: string;
+        };
       };
-    };
-  }) {
+    },
+  ) {
     try {
       const result = await this.paymentService.processPayment(
+        clientId,
         body.sourceId,
         body.amount,
         body.planType,
         body.sessionId,
         body.userEmail,
         body.userName,
-        body.billingContact
+        body.billingContact,
       );
       return result;
     } catch (error: any) {
@@ -131,4 +149,3 @@ export class PaymentController {
     }
   }
 }
-

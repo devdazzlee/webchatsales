@@ -1,24 +1,30 @@
-import { Controller, Post, Get, Body, Param, Query } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { LeadService } from './lead.service';
+import { ClientId } from '../tenant/tenant.decorator';
+import { TenantGuard } from '../tenant/tenant.guard';
 
 @Controller('api/lead')
+@UseGuards(TenantGuard)
 export class LeadController {
   constructor(private readonly leadService: LeadService) {}
 
   @Post()
-  async createLead(@Body() body: {
-    sessionId: string;
-    name?: string;
-    email?: string;
-    phone?: string;
-    serviceNeed?: string;
-    timing?: string;
-    budget?: string;
-    tags?: string[];
-    summary?: string;
-    conversationId?: string;
-  }) {
-    const lead = await this.leadService.createLead(body);
+  async createLead(
+    @ClientId() clientId: string,
+    @Body() body: {
+      sessionId: string;
+      name?: string;
+      email?: string;
+      phone?: string;
+      serviceNeed?: string;
+      timing?: string;
+      budget?: string;
+      tags?: string[];
+      summary?: string;
+      conversationId?: string;
+    },
+  ) {
+    const lead = await this.leadService.createLead(clientId, body);
     return {
       success: true,
       lead,
@@ -27,9 +33,10 @@ export class LeadController {
 
   @Post('update')
   async updateLead(
-    @Body() body: { sessionId: string; updateData: any }
+    @ClientId() clientId: string,
+    @Body() body: { sessionId: string; updateData: any },
   ) {
-    const lead = await this.leadService.updateLead(body.sessionId, body.updateData);
+    const lead = await this.leadService.updateLead(clientId, body.sessionId, body.updateData);
     return {
       success: true,
       lead,
@@ -37,8 +44,11 @@ export class LeadController {
   }
 
   @Get('session/:sessionId')
-  async getLeadBySession(@Param('sessionId') sessionId: string) {
-    const lead = await this.leadService.getLeadBySessionId(sessionId);
+  async getLeadBySession(
+    @ClientId() clientId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    const lead = await this.leadService.getLeadBySessionId(clientId, sessionId);
     return {
       success: true,
       lead,
@@ -46,9 +56,13 @@ export class LeadController {
   }
 
   @Get('all')
-  async getAllLeads(@Query('limit') limit?: string) {
+  async getAllLeads(
+    @ClientId() clientId: string,
+    @Query('limit') limit?: string,
+  ) {
     const leads = await this.leadService.getAllLeads(
-      limit ? parseInt(limit) : 50
+      clientId,
+      limit ? parseInt(limit) : 50,
     );
     return {
       success: true,
@@ -57,12 +71,14 @@ export class LeadController {
   }
 
   @Get('status/:status')
-  async getLeadsByStatus(@Param('status') status: string) {
-    const leads = await this.leadService.getLeadsByStatus(status);
+  async getLeadsByStatus(
+    @ClientId() clientId: string,
+    @Param('status') status: string,
+  ) {
+    const leads = await this.leadService.getLeadsByStatus(clientId, status);
     return {
       success: true,
       leads,
     };
   }
 }
-

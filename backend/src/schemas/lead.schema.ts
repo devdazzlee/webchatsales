@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Schema as MongooseSchema } from 'mongoose';
 
 export type LeadDocument = Lead & Document;
 
@@ -19,6 +19,9 @@ export type LeadDocument = Lead & Document;
  */
 @Schema({ timestamps: true })
 export class Lead {
+  @Prop({ required: true, type: MongooseSchema.Types.ObjectId, ref: 'Client', index: true })
+  clientId: MongooseSchema.Types.ObjectId;
+
   @Prop({ required: true })
   sessionId: string;
 
@@ -105,8 +108,9 @@ export class Lead {
 }
 
 export const LeadSchema = SchemaFactory.createForClass(Lead);
+LeadSchema.index({ clientId: 1, sessionId: 1 });
+LeadSchema.index({ clientId: 1, email: 1 });
+LeadSchema.index({ clientId: 1, createdAt: -1 });
+LeadSchema.index({ clientId: 1, status: 1 });
 LeadSchema.index({ sessionId: 1 });
-LeadSchema.index({ email: 1 });
-LeadSchema.index({ createdAt: -1 });
-LeadSchema.index({ status: 1 });
 

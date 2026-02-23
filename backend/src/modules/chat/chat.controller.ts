@@ -1,18 +1,25 @@
-import { Controller, Post, Get, Body, Param, Res, Query } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Res, Query, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ChatService } from './chat.service';
+import { ClientId } from '../tenant/tenant.decorator';
+import { TenantGuard } from '../tenant/tenant.guard';
 
 @Controller('api/chat')
+@UseGuards(TenantGuard)
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
   @Post('start')
-  async startConversation(@Body() body: { sessionId?: string; userEmail?: string; userName?: string }) {
+  async startConversation(
+    @ClientId() clientId: string,
+    @Body() body: { sessionId?: string; userEmail?: string; userName?: string },
+  ) {
     const sessionId = body.sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const conversation = await this.chatService.createConversation(
+      clientId,
       sessionId,
       body.userEmail,
-      body.userName
+      body.userName,
     );
     return {
       success: true,
@@ -23,6 +30,7 @@ export class ChatController {
 
   @Post('message')
   async sendMessage(
+    @ClientId() clientId: string,
     @Body() body: { sessionId: string; message: string },
     @Res() res: Response,
   ) {
@@ -47,7 +55,7 @@ export class ChatController {
     let hasError = false;
 
     try {
-      for await (const chunk of this.chatService.streamChatResponse(sessionId, message)) {
+      for await (const chunk of this.chatService.streamChatResponse(clientId, sessionId, message)) {
         chunkCount++;
         if (res.writable) {
           res.write(`data: ${JSON.stringify({ chunk, done: false })}\n\n`);
@@ -91,7 +99,10 @@ export class ChatController {
   }
 
   @Post('save-message')
-  async saveMessageOnly(@Body() body: { sessionId: string; message: string; role?: 'user' | 'assistant' }) {
+  async saveMessageOnly(
+    @ClientId() clientId: string,
+    @Body() body: { sessionId: string; message: string; role?: 'user' | 'assistant' },
+  ) {
     const { sessionId, message, role = 'user' } = body;
 
     if (!sessionId || !message) {
@@ -102,7 +113,7 @@ export class ChatController {
     }
 
     try {
-      await this.chatService.addMessage(sessionId, role, message);
+      await this.chatService.addMessage(clientId, sessionId, role, message);
       return {
         success: true,
         message: 'Message saved successfully',
@@ -117,8 +128,11 @@ export class ChatController {
   }
 
   @Get('conversation/:sessionId')
-  async getConversation(@Param('sessionId') sessionId: string) {
-    const conversation = await this.chatService.getConversation(sessionId);
+  async getConversation(
+    @ClientId() clientId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    const conversation = await this.chatService.getConversation(clientId, sessionId);
     return {
       success: true,
       conversation,
@@ -126,9 +140,13 @@ export class ChatController {
   }
 
   @Get('conversations')
-  async getAllConversations(@Query('limit') limit?: string) {
+  async getAllConversations(
+    @ClientId() clientId: string,
+    @Query('limit') limit?: string,
+  ) {
     const conversations = await this.chatService.getAllConversations(
-      limit ? parseInt(limit) : 50
+      clientId,
+      limit ? parseInt(limit) : 50,
     );
     return {
       success: true,
@@ -137,8 +155,11 @@ export class ChatController {
   }
 
   @Post('end')
-  async endConversation(@Body() body: { sessionId: string }) {
-    await this.chatService.deactivateConversation(body.sessionId);
+  async endConversation(
+    @ClientId() clientId: string,
+    @Body() body: { sessionId: string },
+  ) {
+    await this.chatService.deactivateConversation(clientId, body.sessionId);
     return {
       success: true,
       message: 'Conversation ended',
@@ -146,7 +167,10 @@ export class ChatController {
   }
 
   @Post('book-demo')
-  async bookDemo(@Body() body: { sessionId: string; timeSlot: string; notes?: string }) {
+  async bookDemo(
+    @ClientId() clientId: string,
+    @Body() body: { sessionId: string; timeSlot: string; notes?: string },
+  ) {
     try {
       // Check if we're in demo mode (WebChatSales.com - no bookings allowed)
       const isDemoMode = process.env.DEMO_MODE === 'true' || 
@@ -171,9 +195,10 @@ export class ChatController {
       }
 
       const booking = await this.chatService.handleDemoBooking(
+        clientId,
         sessionId,
         new Date(timeSlot),
-        notes
+        notes,
       );
 
       return {
@@ -190,4 +215,3 @@ export class ChatController {
     }
   }
 }
-

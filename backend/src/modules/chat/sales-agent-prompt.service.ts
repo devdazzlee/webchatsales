@@ -44,6 +44,8 @@ export class SalesAgentPromptService {
     hasBuyingIntent?: boolean;
   }): string {
     const { collectedData } = params;
+    const nextQuestionDirective = this.buildNextQuestionDirective(params.nextQuestion, collectedData);
+    const painQuantificationDirective = this.buildPainQuantificationDirective(collectedData);
     const companyName = params.clientContext?.companyName || 'WebChatSales';
 
     // Build context about what's been collected
@@ -56,6 +58,7 @@ RULE #0: NEVER REPEAT QUESTIONS (HIGHEST PRIORITY - READ THIS FIRST)
 ═══════════════════════════════════════════════════════════════
 CRITICAL: Before asking ANY question, review the ENTIRE conversation history.
 If the user has ALREADY provided information on a topic, DO NOT ask about it again.
+${nextQuestionDirective}
 
 CHECK EVERY TIME:
 1. Did they mention their after-hours challenge? → Don't ask "What happens after hours?"
@@ -154,7 +157,9 @@ You: "Want to see how it works on your site?"
 
 Only after trust is built AND qualification is complete:
 1. Get their email: "Great! What's your email?"
-2. Close: "$97/month. 30-day free trial. No card needed. Want to try it?"
+2. Use ASSUMPTIVE CLOSE (NOT SOFT): "Let's get you set up now - what's your email?"
+3. After email: "$97/month. 30-day free trial. No card needed."
+4. Then move directly to setup steps. Do NOT ask permission-based close questions.
 
 DON'T jump to trial offer if:
 - They just raised an objection (even if you addressed it)
@@ -166,6 +171,7 @@ DON'T jump to trial offer if:
 RULE #5: NATURAL QUALIFICATION WITH ACKNOWLEDGMENT (CRITICAL)
 ═══════════════════════════════════════════════════════════════
 ${collectedInfo}
+${painQuantificationDirective}
 
 QUALIFICATION APPROACH:
 Don't follow a rigid script. Ask questions naturally as the conversation flows.
@@ -224,6 +230,15 @@ When they give interesting answers, probe deeper:
 
 IMPORTANT: Ask 2-3 of these questions EARLY to validate it's a real opportunity.
 Don't wait until the end. Mix them naturally into the conversation.
+
+PAIN QUANTIFICATION (MANDATORY WHEN DATA EXISTS):
+- If lead volume and deal value are available, quantify estimated revenue loss in one short line.
+- Use conservative math from user data only. Never invent numbers.
+- Formula examples:
+  * If user says misses N leads/week: lost_monthly = N x deal_value x 4
+  * If user says "even one missed lead": lost_monthly = 1 x deal_value x 4
+  * If they gave no missed count, ask once: "Roughly how many after-hours leads do you miss weekly?"
+- Example: "If one $400 job is missed weekly, that's about $1,600/month lost."
 
 TIE-BACK (after understanding their situation - use warmer language):
 "That's a common challenge — we built Abby for that."
@@ -299,6 +314,12 @@ For unclear hesitation: "Usually it's cost, trust, or ROI. Which one?"
 CRITICAL: Don't jump to trial offer immediately after objection.
 Build trust first. Show you understand. Then offer.
 
+MISTAKE RECOVERY (WHEN USER SAYS "I ALREADY TOLD YOU"):
+1. Own it briefly: "You're right - thanks for catching that."
+2. Summarize what they already said in one line.
+3. Ask only the next unanswered question (or move to close if complete).
+4. Never ask the repeated question again in that session.
+
 ═══════════════════════════════════════════════════════════════
 RULE #7: SOUND HUMAN (WARM, NOT CORPORATE)
 ═══════════════════════════════════════════════════════════════
@@ -369,7 +390,8 @@ You: "What's a typical job worth?"
 
 User: "Around $500-800"
 You: "Makes sense. So missing one costs you."
-You: "What happens when leads come in after hours?"
+You: "If one lead is missed weekly, that's roughly $2,000-$3,200/month."
+You: "Are you the decision maker for adding tools like this?"
 
 User: "We lose them to competitors"
 You: "That's a common challenge — we built Abby for that."
@@ -503,6 +525,70 @@ Sound warm, human, and conversational — like texting a colleague, not a corpor
     }
 
     return `ALREADY COLLECTED:\n${items.map(i => `✓ ${i}`).join('\n')}`;
+  }
+
+  private buildNextQuestionDirective(
+    nextQuestion?: string | null,
+    collectedData?: {
+      name?: string;
+      businessType?: string;
+      leadSource?: string;
+      leadsPerWeek?: string;
+      dealValue?: string;
+      afterHoursPain?: string;
+      email?: string;
+      phone?: string;
+    },
+  ): string {
+    if (nextQuestion) {
+      return `\nBACKEND MEMORY STATE (SOURCE OF TRUTH):\n- The next unanswered question is: "${nextQuestion}"\n- If you ask a question now, ask THIS exact question only.\n- Do not ask any earlier-step question again.`;
+    }
+
+    const hasCoreQualification =
+      !!collectedData?.name &&
+      !!collectedData?.businessType &&
+      !!(collectedData?.leadSource || collectedData?.leadsPerWeek || collectedData?.dealValue || collectedData?.afterHoursPain);
+
+    if (hasCoreQualification) {
+      return `\nBACKEND MEMORY STATE (SOURCE OF TRUTH):\n- Discovery is complete. Do NOT ask discovery questions again.\n- Move to close: use assumptive language and collect email/phone if missing.`;
+    }
+
+    return `\nBACKEND MEMORY STATE (SOURCE OF TRUTH):\n- Continue qualification naturally.\n- Never repeat already answered topics.`;
+  }
+
+  private buildPainQuantificationDirective(collectedData?: {
+    leadsPerWeek?: string;
+    dealValue?: string;
+    afterHoursPain?: string;
+  }): string {
+    const leadsPerWeek = this.extractNumber(collectedData?.leadsPerWeek);
+    const dealValue = this.extractCurrency(collectedData?.dealValue);
+    const hasPain = !!collectedData?.afterHoursPain;
+
+    if (!leadsPerWeek || !dealValue || !hasPain) {
+      return '\nROI CONTEXT: Gather leads/week + deal value + after-hours loss signal, then quantify pain immediately once available.';
+    }
+
+    const conservativeMissedLeadsPerWeek = Math.max(1, Math.ceil(leadsPerWeek * 0.1));
+    const estimatedMonthlyLoss = conservativeMissedLeadsPerWeek * dealValue * 4;
+
+    return `\nROI CONTEXT (use this now):\n- leads/week: ~${leadsPerWeek}\n- average job value: ~$${dealValue}\n- conservative missed leads/week assumption: ${conservativeMissedLeadsPerWeek}\n- estimated monthly loss: ~$${estimatedMonthlyLoss}\nUse this in one short sentence before closing.`;
+  }
+
+  private extractNumber(value?: string): number | null {
+    if (!value) return null;
+    const match = value.replace(/,/g, '').match(/(\d+(\.\d+)?)/);
+    if (!match) return null;
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private extractCurrency(value?: string): number | null {
+    if (!value) return null;
+    const match = value.replace(/,/g, '').match(/(\d+(\.\d+)?)/);
+    if (!match) return null;
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   /**

@@ -17,7 +17,7 @@ export class DashboardService {
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
   ) {}
 
-  async getDashboardStats() {
+  async getDashboardStats(clientId: string) {
     const [
       totalConversations,
       activeConversations,
@@ -35,42 +35,45 @@ export class DashboardService {
       recentPayments,
       recentBookings,
     ] = await Promise.all([
-      this.conversationModel.countDocuments({}),
-      this.conversationModel.countDocuments({ isActive: true }),
-      this.leadModel.countDocuments({}),
-      this.leadModel.countDocuments({ status: 'qualified' }),
-      this.supportTicketModel.countDocuments({}),
-      this.supportTicketModel.countDocuments({ status: 'open' }),
-      this.paymentModel.countDocuments({}),
-      this.paymentModel.countDocuments({ status: 'completed' }),
-      this.bookingModel.countDocuments({}),
-      this.bookingModel.countDocuments({ status: 'scheduled' }),
-      this.conversationModel.find().sort({ lastMessageAt: -1 }).limit(10).exec(),
-      this.leadModel.find().sort({ createdAt: -1 }).limit(10).exec(),
-      this.supportTicketModel.find().sort({ createdAt: -1 }).limit(10).exec(),
-      this.paymentModel.find().sort({ createdAt: -1 }).limit(10).exec(),
-      this.bookingModel.find().sort({ createdAt: -1 }).limit(10).exec(),
+      this.conversationModel.countDocuments({ clientId }),
+      this.conversationModel.countDocuments({ clientId, isActive: true }),
+      this.leadModel.countDocuments({ clientId }),
+      this.leadModel.countDocuments({ clientId, status: 'qualified' }),
+      this.supportTicketModel.countDocuments({ clientId }),
+      this.supportTicketModel.countDocuments({ clientId, status: 'open' }),
+      this.paymentModel.countDocuments({ clientId }),
+      this.paymentModel.countDocuments({ clientId, status: 'completed' }),
+      this.bookingModel.countDocuments({ clientId }),
+      this.bookingModel.countDocuments({ clientId, status: 'scheduled' }),
+      this.conversationModel.find({ clientId }).sort({ lastMessageAt: -1 }).limit(10).exec(),
+      this.leadModel.find({ clientId }).sort({ createdAt: -1 }).limit(10).exec(),
+      this.supportTicketModel.find({ clientId }).sort({ createdAt: -1 }).limit(10).exec(),
+      this.paymentModel.find({ clientId }).sort({ createdAt: -1 }).limit(10).exec(),
+      this.bookingModel.find({ clientId }).sort({ createdAt: -1 }).limit(10).exec(),
     ]);
 
     // Calculate revenue
     const revenueData = await this.paymentModel.aggregate([
-      { $match: { status: 'completed' } },
+      { $match: { clientId, status: 'completed' } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
     const totalRevenue = revenueData[0]?.total || 0;
 
     // Get leads by status
     const leadsByStatus = await this.leadModel.aggregate([
+      { $match: { clientId } },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]);
 
     // Get tickets by priority
     const ticketsByPriority = await this.supportTicketModel.aggregate([
+      { $match: { clientId } },
       { $group: { _id: '$priority', count: { $sum: 1 } } },
     ]);
 
     // Get payments by status
     const paymentsByStatus = await this.paymentModel.aggregate([
+      { $match: { clientId } },
       { $group: { _id: '$status', count: { $sum: 1 }, total: { $sum: '$amount' } } },
     ]);
 
@@ -78,7 +81,7 @@ export class DashboardService {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const conversationsOverTime = await this.conversationModel.aggregate([
-      { $match: { createdAt: { $gte: thirtyDaysAgo } } },
+      { $match: { clientId, createdAt: { $gte: thirtyDaysAgo } } },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
@@ -130,15 +133,15 @@ export class DashboardService {
     };
   }
 
-  async getAllConversations(limit = 50, skip = 0) {
+  async getAllConversations(clientId: string, limit = 50, skip = 0) {
     const [conversations, total] = await Promise.all([
       this.conversationModel
-        .find()
+        .find({ clientId })
         .sort({ lastMessageAt: -1 })
         .limit(limit)
         .skip(skip)
         .exec(),
-      this.conversationModel.countDocuments({}),
+      this.conversationModel.countDocuments({ clientId }),
     ]);
 
     return {
@@ -149,8 +152,10 @@ export class DashboardService {
     };
   }
 
-  async getAllLeads(limit = 50, skip = 0, status?: string) {
-    const query = status ? { status } : {};
+  async getAllLeads(clientId: string, limit = 50, skip = 0, status?: string) {
+    const query: any = { clientId };
+    if (status) query.status = status;
+
     const [leads, total] = await Promise.all([
       this.leadModel
         .find(query)
@@ -169,8 +174,10 @@ export class DashboardService {
     };
   }
 
-  async getAllTickets(limit = 50, skip = 0, status?: string) {
-    const query = status ? { status } : {};
+  async getAllTickets(clientId: string, limit = 50, skip = 0, status?: string) {
+    const query: any = { clientId };
+    if (status) query.status = status;
+
     const [tickets, total] = await Promise.all([
       this.supportTicketModel
         .find(query)
@@ -189,8 +196,10 @@ export class DashboardService {
     };
   }
 
-  async getAllPayments(limit = 50, skip = 0, status?: string) {
-    const query = status ? { status } : {};
+  async getAllPayments(clientId: string, limit = 50, skip = 0, status?: string) {
+    const query: any = { clientId };
+    if (status) query.status = status;
+
     const [payments, total] = await Promise.all([
       this.paymentModel
         .find(query)
@@ -209,8 +218,8 @@ export class DashboardService {
     };
   }
 
-  async getAllBookings(limit = 50, skip = 0, status?: string, dateFrom?: string, dateTo?: string, search?: string) {
-    const query: any = {};
+  async getAllBookings(clientId: string, limit = 50, skip = 0, status?: string, dateFrom?: string, dateTo?: string, search?: string) {
+    const query: any = { clientId };
     
     // Status filter
     if (status) {
@@ -258,18 +267,18 @@ export class DashboardService {
     };
   }
 
-  async getConversationDetails(sessionId: string) {
-    const conversation = await this.conversationModel.findOne({ sessionId }).exec();
+  async getConversationDetails(clientId: string, sessionId: string) {
+    const conversation = await this.conversationModel.findOne({ clientId, sessionId }).exec();
     if (!conversation) {
       return null;
     }
 
-    // Get related data
+    // Get related data — all scoped to the same client
     const [lead, ticket, booking, payment] = await Promise.all([
-      this.leadModel.findOne({ sessionId }).exec(),
-      this.supportTicketModel.findOne({ sessionId }).sort({ createdAt: -1 }).exec(),
-      this.bookingModel.findOne({ sessionId }).sort({ createdAt: -1 }).exec(),
-      this.paymentModel.findOne({ sessionId }).sort({ createdAt: -1 }).exec(),
+      this.leadModel.findOne({ clientId, sessionId }).exec(),
+      this.supportTicketModel.findOne({ clientId, sessionId }).sort({ createdAt: -1 }).exec(),
+      this.bookingModel.findOne({ clientId, sessionId }).sort({ createdAt: -1 }).exec(),
+      this.paymentModel.findOne({ clientId, sessionId }).sort({ createdAt: -1 }).exec(),
     ]);
 
     return {
@@ -281,4 +290,3 @@ export class DashboardService {
     };
   }
 }
-

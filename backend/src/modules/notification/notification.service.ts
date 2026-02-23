@@ -1,28 +1,47 @@
 import { Injectable } from '@nestjs/common';
 import { EmailService } from '../email/email.service';
+import { TenantService } from '../tenant/tenant.service';
 import { config } from '../../config/config';
 
 /**
  * NotificationService - Handles real-time email notifications for client sites
  * 
+ * Multi-tenant aware: resolves notification email per-client.
+ * Falls back to global config if no per-tenant email is set.
+ * 
  * Triggers:
  * 1. New Conversation - When a visitor starts chatting (first user message)
  * 2. Qualified Lead - When a lead has all required fields collected
  * 3. Missed Question - When the AI can't answer or detects a support issue
- * 
- * All notifications are sent to the configured notification email.
- * Email notifications are standard out of the box.
+ * 4. New Lead - When a visitor first shares contact info
  */
 @Injectable()
 export class NotificationService {
-  constructor(private readonly emailService: EmailService) {
-    console.log(`[NotificationService] ✅ Initialized - notifications will be sent to: ${config.notificationEmail}`);
+  constructor(
+    private readonly emailService: EmailService,
+    private readonly tenantService: TenantService,
+  ) {
+    console.log(`[NotificationService] ✅ Initialized - global fallback email: ${config.notificationEmail}`);
   }
 
   /**
-   * Get the notification email recipient
+   * Get the notification email for a specific client.
+   * Falls back to global config if tenant has no notification email.
    */
-  private getNotificationEmail(): string {
+  private async getNotificationEmail(clientId?: string): Promise<string> {
+    if (clientId) {
+      try {
+        const client = await this.tenantService.findById(clientId);
+        if (client?.notificationEmail) {
+          return client.notificationEmail;
+        }
+        if (client?.ownerEmail) {
+          return client.ownerEmail;
+        }
+      } catch (err) {
+        console.warn(`[NotificationService] Could not resolve tenant email for ${clientId}:`, err);
+      }
+    }
     return config.notificationEmail;
   }
 
@@ -30,13 +49,14 @@ export class NotificationService {
    * Notify when a new conversation starts (first user message)
    */
   async notifyNewConversation(data: {
+    clientId?: string;
     sessionId: string;
     firstMessage: string;
     userName?: string;
     userEmail?: string;
     timestamp: Date;
   }) {
-    const notificationEmail = this.getNotificationEmail();
+    const notificationEmail = await this.getNotificationEmail(data.clientId);
     if (!notificationEmail) {
       console.warn('[NotificationService] ⚠️ No notification email configured');
       return;
@@ -137,6 +157,7 @@ export class NotificationService {
    * Notify when a lead is qualified (has all key fields)
    */
   async notifyQualifiedLead(data: {
+    clientId?: string;
     sessionId: string;
     name: string;
     email?: string;
@@ -153,7 +174,7 @@ export class NotificationService {
     conversationTranscript?: string;
     timestamp: Date;
   }) {
-    const notificationEmail = this.getNotificationEmail();
+    const notificationEmail = await this.getNotificationEmail(data.clientId);
     if (!notificationEmail) return;
 
     const timeStr = data.timestamp.toLocaleString('en-US', {
@@ -264,6 +285,7 @@ export class NotificationService {
    * Notify when a question is missed / support issue detected
    */
   async notifyMissedQuestion(data: {
+    clientId?: string;
     sessionId: string;
     userMessage: string;
     userName?: string;
@@ -273,7 +295,7 @@ export class NotificationService {
     sentiment?: string;
     timestamp: Date;
   }) {
-    const notificationEmail = this.getNotificationEmail();
+    const notificationEmail = await this.getNotificationEmail(data.clientId);
     if (!notificationEmail) return;
 
     const timeStr = data.timestamp.toLocaleString('en-US', {
@@ -369,6 +391,7 @@ export class NotificationService {
    * Notify when a new lead is created (even before fully qualified - has at least name or email)
    */
   async notifyNewLead(data: {
+    clientId?: string;
     sessionId: string;
     name?: string;
     email?: string;
@@ -376,7 +399,7 @@ export class NotificationService {
     serviceNeed?: string;
     timestamp: Date;
   }) {
-    const notificationEmail = this.getNotificationEmail();
+    const notificationEmail = await this.getNotificationEmail(data.clientId);
     if (!notificationEmail) return;
 
     // Only notify if we have at least a name or email

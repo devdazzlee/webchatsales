@@ -11,6 +11,7 @@ import { BookingService } from '../booking/booking.service';
 import { NotificationService } from '../notification/notification.service';
 import { PromptBuilderService } from './prompt-builder.service';
 import { SalesAgentPromptService } from './sales-agent-prompt.service';
+import { TenantService } from '../tenant/tenant.service';
 import { config } from '../../config/config';
 
 @Injectable()
@@ -28,6 +29,7 @@ export class ChatService {
     private notificationService: NotificationService,
     private promptBuilder: PromptBuilderService,
     private salesAgentPrompt: SalesAgentPromptService,
+    private tenantService: TenantService,
   ) {
     // Get OpenAI API key from environment variables
     const openaiApiKey = 
@@ -55,8 +57,9 @@ export class ChatService {
     console.log(`[ChatService] ✅ OpenAI API initialized with model: ${this.model} (key ends with: ${openaiApiKey.substring(openaiApiKey.length - 6)})`);
   }
 
-  async createConversation(sessionId: string, userEmail?: string, userName?: string) {
+  async createConversation(clientId: string, sessionId: string, userEmail?: string, userName?: string) {
     const conversation = new this.conversationModel({
+      clientId,
       sessionId,
       messages: [],
       isActive: true,
@@ -67,13 +70,13 @@ export class ChatService {
     return conversation.save();
   }
 
-  async getConversation(sessionId: string) {
-    return this.conversationModel.findOne({ sessionId, isActive: true }).exec();
+  async getConversation(clientId: string, sessionId: string) {
+    return this.conversationModel.findOne({ clientId, sessionId, isActive: true }).exec();
   }
 
-  async addMessage(sessionId: string, role: 'user' | 'assistant', content: string) {
+  async addMessage(clientId: string, sessionId: string, role: 'user' | 'assistant', content: string) {
     try {
-      const conversation = await this.getConversation(sessionId);
+      const conversation = await this.getConversation(clientId, sessionId);
       
       if (!conversation) {
         console.error(`[ChatService] Conversation not found for sessionId: ${sessionId}`);
@@ -185,9 +188,9 @@ export class ChatService {
    * STRICT: Does not move to next question until current one is properly answered
    * Returns either a string (question) or an object with question and validation failure info
    */
-  private async getNextQualificationQuestion(sessionId: string, lastValidationFailure?: { field: string; reason?: string } | null): Promise<string | { question: string; lastFailure?: { field: string; reason?: string } } | null> {
+  private async getNextQualificationQuestion(clientId: string, sessionId: string, lastValidationFailure?: { field: string; reason?: string } | null): Promise<string | { question: string; lastFailure?: { field: string; reason?: string } } | null> {
     // Check existing lead data from database (most reliable source)
-    const existingLead = await this.leadService.getLeadBySessionId(sessionId);
+    const existingLead = await this.leadService.getLeadBySessionId(clientId, sessionId);
     
     // Check if we should use sales agent flow (client websites, not demo mode)
     const isDemoMode = process.env.DEMO_MODE === 'true' || 
@@ -524,22 +527,22 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     }
   }
 
-  async *streamChatResponse(sessionId: string, userMessage: string) {
-    console.log(`[ChatService] Starting streamChatResponse for sessionId: ${sessionId}, message: "${userMessage.substring(0, 50)}..."`);
+  async *streamChatResponse(clientId: string, sessionId: string, userMessage: string) {
+    console.log(`[ChatService] Starting streamChatResponse for clientId: ${clientId}, sessionId: ${sessionId}, message: "${userMessage.substring(0, 50)}..."`);
     
     // Get or create conversation
-    let conversation = await this.getConversation(sessionId);
+    let conversation = await this.getConversation(clientId, sessionId);
     if (!conversation) {
       console.log(`[ChatService] Creating new conversation for sessionId: ${sessionId}`);
-      conversation = await this.createConversation(sessionId);
+      conversation = await this.createConversation(clientId, sessionId);
     }
 
     // Add user message
-    await this.addMessage(sessionId, 'user', userMessage);
+    await this.addMessage(clientId, sessionId, 'user', userMessage);
     console.log(`[ChatService] User message saved, fetching conversation for AI context`);
 
     // Refetch conversation to get updated messages array
-    conversation = await this.getConversation(sessionId);
+    conversation = await this.getConversation(clientId, sessionId);
     if (!conversation) {
       console.error(`[ChatService] Failed to retrieve conversation after adding message`);
       throw new Error('Failed to retrieve conversation after adding message');
@@ -550,6 +553,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     if (userMessagesCount === 1) {
       // Fire and forget - don't block the response
       this.notificationService.notifyNewConversation({
+        clientId,
         sessionId,
         firstMessage: userMessage,
         userName: conversation.userName,
@@ -560,7 +564,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     }
 
     // Get lead state BEFORE extraction to detect validation failures
-    const leadBeforeExtraction = await this.leadService.getLeadBySessionId(sessionId);
+    const leadBeforeExtraction = await this.leadService.getLeadBySessionId(clientId, sessionId);
     
     // ROOT CAUSE FIX: Skip expensive AI-powered support detection for normal conversations
     // Use quick keyword check first - only call AI for potential support issues
@@ -576,11 +580,12 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     if (hasSupportIssue) {
       console.log(`[ChatService] 🔴 Support issue detected for session ${sessionId} - creating ticket before response`);
       try {
-        newlyCreatedTicket = await this.handleSupportIssue(sessionId, conversation);
+        newlyCreatedTicket = await this.handleSupportIssue(clientId, sessionId, conversation);
         
         // 🔔 NOTIFICATION: Missed question / support issue alert
-        const existingLead = await this.leadService.getLeadBySessionId(sessionId);
+        const existingLead = await this.leadService.getLeadBySessionId(clientId, sessionId);
         this.notificationService.notifyMissedQuestion({
+          clientId,
           sessionId,
           userMessage,
           userName: existingLead?.name || conversation.userName,
@@ -616,12 +621,12 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     console.log(`[ChatService] Discovery phase check for ${sessionId}:`, discoveryPhase);
     
     // Extract lead data from conversation (this updates the lead in database)
-    await this.extractAndSaveLead(sessionId, conversation);
+    await this.extractAndSaveLead(clientId, sessionId, conversation);
     
     // Get lead state AFTER extraction to detect if a field was cleared (validation failure)
     // Note: Using immediate refetch - MongoDB write is synchronous in this context
     // If needed, implement retry logic for eventual consistency scenarios
-    const leadAfterExtraction = await this.leadService.getLeadBySessionId(sessionId);
+    const leadAfterExtraction = await this.leadService.getLeadBySessionId(clientId, sessionId);
     
     // Detect validation failure: if a field had a value before but is now null/cleared, it failed validation
     let lastValidationFailure: { field: string; reason?: string } | null = null;
@@ -644,7 +649,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     
     if (!isDemoMode) {
       // Sales agent flow: Use new discovery/qualification questions
-      nextQuestionResult = await this.getNextQualificationQuestion(sessionId, lastValidationFailure);
+      nextQuestionResult = await this.getNextQualificationQuestion(clientId, sessionId, lastValidationFailure);
     }
     
     // Handle null case (all questions answered - qualification complete)
@@ -663,12 +668,12 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     }
     
     // Check if there's an active support ticket for this session (support mode)
-    const activeTicket = newlyCreatedTicket || await this.supportService.getTicketBySessionId(sessionId);
+    const activeTicket = newlyCreatedTicket || await this.supportService.getTicketBySessionId(clientId, sessionId);
     const isSupportMode = activeTicket && activeTicket.status !== 'closed' && activeTicket.status !== 'resolved';
     const ticketJustCreated = newlyCreatedTicket !== null;
     
     // Get lead data for context
-    const lead = await this.leadService.getLeadBySessionId(sessionId);
+    const lead = await this.leadService.getLeadBySessionId(clientId, sessionId);
 
     // ROOT CAUSE FIX: Use fast pattern matching for buying intent instead of OpenAI API call
     // This eliminates 1 API call per message - reduces crashes significantly
@@ -689,7 +694,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
         if (hasBuyingIntent) {
         console.log(`[ChatService] ✅ Buying intent detected (pattern match) for ${sessionId}`);
           if (lead) {
-            await this.leadService.updateLead(sessionId, { hasBuyingIntent: true });
+            await this.leadService.updateLead(clientId, sessionId, { hasBuyingIntent: true });
             
           // Send email if lead has email but is not qualified yet
             if (lead.email && 
@@ -709,7 +714,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
               }
             }
         } else {
-            await this.leadService.createLead({ 
+            await this.leadService.createLead(clientId, { 
               sessionId, 
               hasBuyingIntent: true,
               status: 'new'
@@ -767,7 +772,8 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     
     const systemPrompt = this.salesAgentPrompt.buildSalesAgentPrompt({
         conversationPhase,
-      nextQuestion: null, // AI decides what to ask based on context
+      // Pass deterministic next question from backend state so AI doesn't re-ask answered topics.
+      nextQuestion,
         clientContext: {
         companyName: process.env.CLIENT_COMPANY_NAME || 'WebChatSales',
       },
@@ -838,7 +844,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
 
       // Save assistant response
       if (fullResponse && fullResponse.trim()) {
-        await this.addMessage(sessionId, 'assistant', fullResponse);
+        await this.addMessage(clientId, sessionId, 'assistant', fullResponse);
         console.log(`[ChatService] Assistant response saved: ${fullResponse.length} chars`);
         
         // Process conversation for lead qualification (support detection already done earlier)
@@ -856,7 +862,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
         // If we got a partial response, save it and don't retry
       if (fullResponse && fullResponse.trim()) {
         try {
-          await this.addMessage(sessionId, 'assistant', fullResponse);
+          await this.addMessage(clientId, sessionId, 'assistant', fullResponse);
           console.log(`[ChatService] Saved partial response (${fullResponse.length} chars) after error`);
             return; // Don't retry if we have partial content
         } catch (saveError) {
@@ -880,17 +886,17 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     throw lastError || new Error('Failed to get AI response after retries');
   }
 
-  async getAllConversations(limit = 50) {
+  async getAllConversations(clientId: string, limit = 50) {
     return this.conversationModel
-      .find({ isActive: true })
+      .find({ clientId, isActive: true })
       .sort({ lastMessageAt: -1 })
       .limit(limit)
       .exec();
   }
 
-  async deactivateConversation(sessionId: string) {
+  async deactivateConversation(clientId: string, sessionId: string) {
     return this.conversationModel.updateOne(
-      { sessionId },
+      { clientId, sessionId },
       { isActive: false }
     ).exec();
   }
@@ -970,17 +976,17 @@ Respond with JSON: {"isSupportIssue": true/false, "reason": "brief explanation",
    * Handle support issue - automatically create ticket with all required fields
    * ROOT CAUSE FIX: Combined 3 AI calls into 1 to prevent API overload/crashes
    */
-  private async handleSupportIssue(sessionId: string, conversation: any): Promise<any> {
+  private async handleSupportIssue(clientId: string, sessionId: string, conversation: any): Promise<any> {
     try {
       // Check if ticket already exists for this session
-      const existingTicket = await this.supportService.getTicketBySessionId(sessionId);
+      const existingTicket = await this.supportService.getTicketBySessionId(clientId, sessionId);
       if (existingTicket && existingTicket.status !== 'closed' && existingTicket.status !== 'resolved') {
         console.log(`[ChatService] ⚠️ Active support ticket already exists: ${existingTicket.ticketId}`);
         return; // Don't create duplicate tickets
       }
 
       // Get lead information if available
-      const lead = await this.leadService.getLeadBySessionId(sessionId);
+      const lead = await this.leadService.getLeadBySessionId(clientId, sessionId);
 
       // ROOT CAUSE FIX: Combine sentiment + priority + summary into ONE API call
       // This reduces 3 API calls to 1, significantly reducing crash risk
@@ -999,7 +1005,7 @@ Respond with JSON: {"isSupportIssue": true/false, "reason": "brief explanation",
         .join('\n\n');
 
       // Create support ticket with all required fields
-      const ticket = await this.supportService.createSupportTicket({
+      const ticket = await this.supportService.createSupportTicket(clientId, {
         sessionId,
         transcript,
         sentiment: sentimentResult.sentiment,
@@ -1300,7 +1306,7 @@ Respond with JSON: {"summary": "brief summary text"}`;
     }
   }
 
-  private async extractAndSaveLead(sessionId: string, conversation: any) {
+  private async extractAndSaveLead(clientId: string, sessionId: string, conversation: any) {
     try {
       // Get the last user message to prioritize most recent input
       const userMessages = conversation.messages.filter((m: any) => m.role === 'user');
@@ -1311,7 +1317,7 @@ Respond with JSON: {"summary": "brief summary text"}`;
       const lastAssistantMessage = assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1].content : '';
       
       // Get existing lead to check current state (for "unsure" logic)
-      const existingLead = await this.leadService.getLeadBySessionId(sessionId);
+      const existingLead = await this.leadService.getLeadBySessionId(clientId, sessionId);
       
       const allMessages = conversation.messages.map((m: any) => `${m.role}: ${m.content}`).join('\n');
       
@@ -1649,7 +1655,7 @@ Return JSON: ${isDemoMode
 
         // Always try to update lead (even if clearing invalid values)
         // Check if lead already exists
-        let lead = await this.leadService.getLeadBySessionId(sessionId);
+        let lead = await this.leadService.getLeadBySessionId(clientId, sessionId);
         
         // If we have at least one valid piece of information OR we need to clear invalid values
         // Also include qualified question answers and sales agent fields (NEW 9-STEP FLOW)
@@ -1923,10 +1929,10 @@ Return JSON: ${isDemoMode
 
           if (lead) {
             // Update existing lead - use $set to properly handle null values
-            await this.leadService.updateLead(sessionId, leadData);
+            await this.leadService.updateLead(clientId, sessionId, leadData);
             
             // Re-fetch to get updated status
-            const updatedLead = await this.leadService.getLeadBySessionId(sessionId);
+            const updatedLead = await this.leadService.getLeadBySessionId(clientId, sessionId);
             
             console.log(`[ChatService] ✅ Lead updated for session ${sessionId}`, {
               name: updatedLead?.name,
@@ -1940,13 +1946,14 @@ Return JSON: ${isDemoMode
             
             // Send notification if lead just became qualified
             if (leadData._shouldNotify && updatedLead?.status === 'qualified') {
-              await this.sendQualifiedLeadNotification(sessionId, updatedLead, conversation);
+              await this.sendQualifiedLeadNotification(clientId, sessionId, updatedLead, conversation);
               
               // 🔔 NOTIFICATION: Qualified lead alert to client
               const transcriptHtml = conversation.messages
                 ?.map((msg: any) => `<div style="margin-bottom: 10px; padding: 8px; background: ${msg.role === 'user' ? '#e3f2fd' : '#f5f5f5'}; border-radius: 4px;"><strong>${msg.role === 'user' ? 'Visitor' : 'Abby'}:</strong> ${msg.content.replace(/\n/g, '<br>')}</div>`)
                 .join('') || '';
               this.notificationService.notifyQualifiedLead({
+                clientId,
                 sessionId,
                 name: updatedLead.name,
                 email: updatedLead.email,
@@ -1992,7 +1999,7 @@ Return JSON: ${isDemoMode
             if (isValidName && isValidEmail && isValidPhone && isValidServiceNeed && isValidTiming && isValidBudget) {
               leadData.status = 'qualified';
             }
-            lead = await this.leadService.createLead(leadData);
+            lead = await this.leadService.createLead(clientId, leadData);
             console.log(`[ChatService] ✅ Lead created for session ${sessionId}`, {
               status: leadData.status || 'new',
               hasAllFields: !!(isValidName && isValidEmail && isValidPhone && isValidServiceNeed && isValidTiming && isValidBudget)
@@ -2000,6 +2007,7 @@ Return JSON: ${isDemoMode
 
             // 🔔 NOTIFICATION: New lead captured alert (first time lead info is collected)
             this.notificationService.notifyNewLead({
+              clientId,
               sessionId,
               name: leadData.name,
               email: leadData.email,
@@ -2011,17 +2019,18 @@ Return JSON: ${isDemoMode
 
             // If lead is qualified (has all required fields including phone), send transcript to admin
             // Check final state after creation
-            const finalLead = await this.leadService.getLeadBySessionId(sessionId);
+            const finalLead = await this.leadService.getLeadBySessionId(clientId, sessionId);
             if (finalLead) {
               const finalHasAllFields = finalLead.name && finalLead.email && finalLead.phone && finalLead.serviceNeed && finalLead.timing && finalLead.budget;
               if (finalHasAllFields && finalLead.status === 'qualified') {
-                await this.sendQualifiedLeadNotification(sessionId, finalLead, conversation);
+                await this.sendQualifiedLeadNotification(clientId, sessionId, finalLead, conversation);
                 
                 // 🔔 NOTIFICATION: Qualified lead alert (from new lead creation path)
                 const transcriptHtml2 = conversation.messages
                   ?.map((msg: any) => `<div style="margin-bottom: 10px; padding: 8px; background: ${msg.role === 'user' ? '#e3f2fd' : '#f5f5f5'}; border-radius: 4px;"><strong>${msg.role === 'user' ? 'Visitor' : 'Abby'}:</strong> ${msg.content.replace(/\n/g, '<br>')}</div>`)
                   .join('') || '';
                 this.notificationService.notifyQualifiedLead({
+                  clientId,
                   sessionId,
                   name: finalLead.name,
                   email: finalLead.email,
@@ -2076,10 +2085,10 @@ Return JSON: ${isDemoMode
   /**
    * Sends qualified lead notification with transcript to admin
    */
-  private async sendQualifiedLeadNotification(sessionId: string, lead: any, conversation: any) {
+  private async sendQualifiedLeadNotification(clientId: string, sessionId: string, lead: any, conversation: any) {
     try {
       // Get full conversation for transcript
-      const fullConversation = await this.getConversation(sessionId);
+      const fullConversation = await this.getConversation(clientId, sessionId);
       
       // Create full transcript
       const transcript = fullConversation?.messages
@@ -2096,8 +2105,10 @@ Return JSON: ${isDemoMode
         `)
         .join('') || '';
 
-      // Send email notification to admin
-      const adminEmail = config.adminEmail;
+      // Resolve admin recipient from tenant config first, then fallback to global.
+      const tenant = await this.tenantService.findById(clientId);
+      const adminEmail =
+        tenant?.notificationEmail || tenant?.ownerEmail || config.notificationEmail || config.adminEmail;
       if (adminEmail) {
         try {
           await this.emailService.sendEmail(
@@ -2192,7 +2203,7 @@ Return JSON: ${isDemoMode
   /**
    * Handle demo booking when user confirms a time slot
    */
-  async handleDemoBooking(sessionId: string, timeSlot: Date, notes?: string): Promise<any> {
+  async handleDemoBooking(clientId: string, sessionId: string, timeSlot: Date, notes?: string): Promise<any> {
     try {
       // Check if we're in demo mode (WebChatSales.com - no bookings allowed)
       const isDemoMode = process.env.DEMO_MODE === 'true' || 
@@ -2204,25 +2215,25 @@ Return JSON: ${isDemoMode
       }
 
       // Check if user already has a booking
-      const hasBooking = await this.bookingService.hasExistingBooking(sessionId);
+      const hasBooking = await this.bookingService.hasExistingBooking(clientId, sessionId);
       if (hasBooking) {
         throw new Error('You already have a booking. Please cancel your existing booking before creating a new one.');
       }
 
       // Check if time slot is available
-      const isAvailable = await this.bookingService.isTimeSlotAvailable(timeSlot);
+      const isAvailable = await this.bookingService.isTimeSlotAvailable(clientId, timeSlot);
       if (!isAvailable) {
         throw new Error('This time slot is no longer available. Please select a different time.');
       }
 
       // Get lead for this session
-      const lead = await this.leadService.getLeadBySessionId(sessionId);
+      const lead = await this.leadService.getLeadBySessionId(clientId, sessionId);
       if (!lead) {
         throw new Error('Lead not found for this session');
       }
 
       // Get conversation
-      const conversation = await this.getConversation(sessionId);
+      const conversation = await this.getConversation(clientId, sessionId);
       if (!conversation) {
         throw new Error('Conversation not found');
       }
@@ -2231,7 +2242,7 @@ Return JSON: ${isDemoMode
       const schedulingLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/book-demo?sessionId=${sessionId}&timeSlot=${timeSlot.toISOString()}`;
 
       // Create booking
-      const booking = await this.bookingService.createBooking({
+      const booking = await this.bookingService.createBooking(clientId, {
         sessionId,
         leadId: lead._id.toString(),
         timeSlot,
@@ -2244,7 +2255,7 @@ Return JSON: ${isDemoMode
       });
 
       // Update lead status to booked
-      await this.leadService.updateLead(sessionId, { status: 'booked' });
+      await this.leadService.updateLead(clientId, sessionId, { status: 'booked' });
 
       // Send confirmation email to user
       if (lead.email) {

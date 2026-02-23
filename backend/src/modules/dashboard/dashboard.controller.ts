@@ -1,18 +1,17 @@
 import { Controller, Get, Query, Param, Post, Body, UseGuards, SetMetadata } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { AuthGuard } from '../auth/auth.guard';
-
-// Decorator to skip auth for internal endpoints
-const SkipAuth = () => SetMetadata('skipAuth', true);
+import { ClientId, SkipTenant } from '../tenant/tenant.decorator';
+import { TenantGuard } from '../tenant/tenant.guard';
 
 @Controller('api/dashboard')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, TenantGuard)
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('stats')
-  async getDashboardStats() {
-    const stats = await this.dashboardService.getDashboardStats();
+  async getDashboardStats(@ClientId() clientId: string) {
+    const stats = await this.dashboardService.getDashboardStats(clientId);
     return {
       success: true,
       data: stats,
@@ -21,10 +20,12 @@ export class DashboardController {
 
   @Get('conversations')
   async getAllConversations(
+    @ClientId() clientId: string,
     @Query('limit') limit?: string,
     @Query('skip') skip?: string,
   ) {
     const result = await this.dashboardService.getAllConversations(
+      clientId,
       limit ? parseInt(limit) : 50,
       skip ? parseInt(skip) : 0,
     );
@@ -36,11 +37,13 @@ export class DashboardController {
 
   @Get('leads')
   async getAllLeads(
+    @ClientId() clientId: string,
     @Query('limit') limit?: string,
     @Query('skip') skip?: string,
     @Query('status') status?: string,
   ) {
     const result = await this.dashboardService.getAllLeads(
+      clientId,
       limit ? parseInt(limit) : 50,
       skip ? parseInt(skip) : 0,
       status,
@@ -53,11 +56,13 @@ export class DashboardController {
 
   @Get('tickets')
   async getAllTickets(
+    @ClientId() clientId: string,
     @Query('limit') limit?: string,
     @Query('skip') skip?: string,
     @Query('status') status?: string,
   ) {
     const result = await this.dashboardService.getAllTickets(
+      clientId,
       limit ? parseInt(limit) : 50,
       skip ? parseInt(skip) : 0,
       status,
@@ -70,11 +75,13 @@ export class DashboardController {
 
   @Get('payments')
   async getAllPayments(
+    @ClientId() clientId: string,
     @Query('limit') limit?: string,
     @Query('skip') skip?: string,
     @Query('status') status?: string,
   ) {
     const result = await this.dashboardService.getAllPayments(
+      clientId,
       limit ? parseInt(limit) : 50,
       skip ? parseInt(skip) : 0,
       status,
@@ -87,6 +94,7 @@ export class DashboardController {
 
   @Get('bookings')
   async getAllBookings(
+    @ClientId() clientId: string,
     @Query('limit') limit?: string,
     @Query('skip') skip?: string,
     @Query('status') status?: string,
@@ -95,6 +103,7 @@ export class DashboardController {
     @Query('search') search?: string,
   ) {
     const result = await this.dashboardService.getAllBookings(
+      clientId,
       limit ? parseInt(limit) : 50,
       skip ? parseInt(skip) : 0,
       status,
@@ -109,8 +118,11 @@ export class DashboardController {
   }
 
   @Get('conversation/:sessionId')
-  async getConversationDetails(@Param('sessionId') sessionId: string) {
-    const details = await this.dashboardService.getConversationDetails(sessionId);
+  async getConversationDetails(
+    @ClientId() clientId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    const details = await this.dashboardService.getConversationDetails(clientId, sessionId);
     if (!details) {
       return {
         success: false,
@@ -124,7 +136,7 @@ export class DashboardController {
   }
 
   @Post('ticket')
-  @SkipAuth()
+  @SkipTenant()
   async receiveTicket(@Body() body: {
     ticketId: string;
     sessionId: string;
@@ -170,7 +182,7 @@ export class DashboardController {
   }
 
   @Post('transcript')
-  @SkipAuth() // Skip auth for internal service-to-service calls
+  @SkipTenant() // Skip tenant for internal service-to-service calls
   async receiveTranscript(@Body() body: {
     sessionId: string;
     transcript: string;
@@ -199,4 +211,3 @@ export class DashboardController {
     };
   }
 }
-
