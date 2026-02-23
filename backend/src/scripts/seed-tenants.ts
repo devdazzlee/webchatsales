@@ -17,6 +17,7 @@ async function bootstrap() {
     const requiredDomains = [
       'http://localhost:3000/',
       'https://webchatsales.com/',
+      'https://www.webchatsales.com/',
     ];
 
     const slug = name

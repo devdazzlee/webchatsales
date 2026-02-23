@@ -293,14 +293,16 @@ export class TenantService {
     try {
       const withScheme = /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`;
       const url = new URL(withScheme);
-      return url.hostname;
+      const hostname = url.hostname.replace(/^www\./, '');
+      return hostname;
     } catch {
-      return trimmed
+      const fallback = trimmed
         .replace(/^https?:\/\//, '')
         .replace(/\/.*$/, '')
         .replace(/:\d+$/, '')
         .trim()
-        .toLowerCase() || null;
+        .toLowerCase();
+      return fallback.replace(/^www\./, '') || null;
     }
   }
 
