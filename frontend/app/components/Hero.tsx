@@ -33,6 +33,9 @@ export default function Hero() {
           {/* Left Column - Main Content */}
           <div className="space-y-8">
             <div>
+              <p className="text-lg font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--emerald)' }}>
+                Sales while you sleep
+              </p>
               <h1 className="text-5xl md:text-6xl font-bold mb-4" style={{ color: 'var(--ink)' }}>
                 WebChatSales
               </h1>

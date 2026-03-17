@@ -648,7 +648,7 @@ export default function Chatbot() {
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden" style={{ background: 'var(--bg)' }}>
                 <Image 
-                  src="/logo.png" 
+                  src="/new-logo.png"
                   alt="WebChatSales Logo" 
                   width={56} 
                   height={56}
