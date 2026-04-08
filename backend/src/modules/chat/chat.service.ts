@@ -57,6 +57,39 @@ export class ChatService {
     console.log(`[ChatService] ✅ OpenAI API initialized with model: ${this.model} (key ends with: ${openaiApiKey.substring(openaiApiKey.length - 6)})`);
   }
 
+  private async getClientContextForPrompt(clientId: string): Promise<{
+    companyName: string;
+    assistantName: string;
+    assistantRole: string;
+    brandVoice: string;
+    valueProposition: string;
+    qualificationGoal: string;
+    responseRules: string[];
+  }> {
+    const client = await this.tenantService.findById(clientId);
+    if (!client) {
+      return {
+        companyName: process.env.CLIENT_COMPANY_NAME || 'WebChatSales',
+        assistantName: 'Abby',
+        assistantRole: 'AI sales assistant',
+        brandVoice: '',
+        valueProposition: '',
+        qualificationGoal: '',
+        responseRules: [],
+      };
+    }
+
+    return {
+      companyName: client.name || process.env.CLIENT_COMPANY_NAME || 'WebChatSales',
+      assistantName: client.businessConfig?.assistantName || client.widgetConfig?.agentName || 'Abby',
+      assistantRole: client.businessConfig?.assistantRole || 'AI sales assistant',
+      brandVoice: client.businessConfig?.brandVoice || '',
+      valueProposition: client.businessConfig?.valueProposition || '',
+      qualificationGoal: client.businessConfig?.qualificationGoal || '',
+      responseRules: client.businessConfig?.responseRules || [],
+    };
+  }
+
   async createConversation(clientId: string, sessionId: string, userEmail?: string, userName?: string) {
     const conversation = new this.conversationModel({
       clientId,
@@ -770,13 +803,13 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     // The AI analyzes intent naturally - no hardcoded detection
     // We just pass collected data for context
     
+    const clientContext = await this.getClientContextForPrompt(clientId);
+
     const systemPrompt = this.salesAgentPrompt.buildSalesAgentPrompt({
         conversationPhase,
       // Pass deterministic next question from backend state so AI doesn't re-ask answered topics.
       nextQuestion,
-        clientContext: {
-        companyName: process.env.CLIENT_COMPANY_NAME || 'WebChatSales',
-      },
+        clientContext,
         collectedData: {
           name: lead?.name,
           businessType: lead?.businessType,

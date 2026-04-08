@@ -34,6 +34,14 @@ export class TenantService {
     notificationEmail?: string;
     schedulingLink?: string;
     isDemoMode?: boolean;
+    businessConfig?: {
+      assistantName?: string;
+      assistantRole?: string;
+      brandVoice?: string;
+      valueProposition?: string;
+      qualificationGoal?: string;
+      responseRules?: string[];
+    };
   }): Promise<ClientDocument> {
     const normalizedAllowedDomains = this.normalizeAllowedDomains(data.allowedDomains);
 

@@ -81,4 +81,12 @@ export interface TenantContext {
     avatarUrl?: string;
     logoUrl?: string;
   };
+  businessConfig: {
+    assistantName: string;
+    assistantRole: string;
+    brandVoice: string;
+    valueProposition: string;
+    qualificationGoal: string;
+    responseRules: string[];
+  };
 }

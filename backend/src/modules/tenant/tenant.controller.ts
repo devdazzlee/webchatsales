@@ -36,6 +36,14 @@ export class TenantController {
       notificationEmail?: string;
       schedulingLink?: string;
       isDemoMode?: boolean;
+      businessConfig?: {
+        assistantName?: string;
+        assistantRole?: string;
+        brandVoice?: string;
+        valueProposition?: string;
+        qualificationGoal?: string;
+        responseRules?: string[];
+      };
     },
   ) {
     this.assertSuperAdmin(req);

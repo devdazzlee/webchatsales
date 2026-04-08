@@ -74,6 +74,14 @@ export class AuthGuard implements CanActivate {
             avatarUrl: client.widgetConfig?.avatarUrl,
             logoUrl: client.widgetConfig?.logoUrl,
           },
+          businessConfig: {
+            assistantName: client.businessConfig?.assistantName || client.widgetConfig?.agentName || 'Abby',
+            assistantRole: client.businessConfig?.assistantRole || 'AI sales assistant',
+            brandVoice: client.businessConfig?.brandVoice || '',
+            valueProposition: client.businessConfig?.valueProposition || '',
+            qualificationGoal: client.businessConfig?.qualificationGoal || '',
+            responseRules: client.businessConfig?.responseRules || [],
+          },
         };
         request[TENANT_KEY] = tenantContext;
       }

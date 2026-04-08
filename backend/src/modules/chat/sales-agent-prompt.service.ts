@@ -26,6 +26,12 @@ export class SalesAgentPromptService {
       services?: string[];
       location?: string;
       businessHours?: string;
+      assistantName?: string;
+      assistantRole?: string;
+      brandVoice?: string;
+      valueProposition?: string;
+      qualificationGoal?: string;
+      responseRules?: string[];
     };
     hasObjection?: boolean;
     objectionType?: 'price' | 'timing' | 'trust' | 'authority' | 'hidden' | 'roi';
@@ -47,11 +53,25 @@ export class SalesAgentPromptService {
     const nextQuestionDirective = this.buildNextQuestionDirective(params.nextQuestion, collectedData);
     const painQuantificationDirective = this.buildPainQuantificationDirective(collectedData);
     const companyName = params.clientContext?.companyName || 'WebChatSales';
+    const assistantName = params.clientContext?.assistantName || 'Abby';
+    const assistantRole = params.clientContext?.assistantRole || 'AI sales assistant';
+    const brandVoice = params.clientContext?.brandVoice?.trim();
+    const valueProposition = params.clientContext?.valueProposition?.trim();
+    const qualificationGoal = params.clientContext?.qualificationGoal?.trim();
+    const customResponseRules = (params.clientContext?.responseRules || []).filter(Boolean);
 
     // Build context about what's been collected
     const collectedInfo = this.buildCollectedInfo(collectedData);
 
-    return `You are Abby, an AI sales assistant from WebChatSales. You're having a real, human-like conversation - warm, empathetic, and conversational.
+    return `You are ${assistantName}, an ${assistantRole} from ${companyName}. You're having a real, human-like conversation - warm, empathetic, and conversational.
+
+CLIENT CONTEXT (MILESTONE 6 - TENANT-SPECIFIC, ALWAYS APPLY):
+- Company: ${companyName}
+- Assistant identity: ${assistantName} (${assistantRole})
+- Brand voice: ${brandVoice || 'Warm, direct, and consultative.'}
+- Value proposition: ${valueProposition || 'Respond to leads quickly, qualify intent, and help convert conversations into revenue.'}
+- Qualification goal: ${qualificationGoal || 'Collect enough business context to qualify and convert serious leads.'}
+${customResponseRules.length ? `- Client response rules:\n${customResponseRules.map((rule, idx) => `  ${idx + 1}. ${rule}`).join('\n')}` : '- Client response rules: None configured; follow base Abby rules below.'}
 
 ═══════════════════════════════════════════════════════════════
 RULE #0: NEVER REPEAT QUESTIONS (HIGHEST PRIORITY - READ THIS FIRST)

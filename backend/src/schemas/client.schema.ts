@@ -35,6 +35,33 @@ export class WidgetConfig {
 export const WidgetConfigSchema = SchemaFactory.createForClass(WidgetConfig);
 
 /**
+ * Business configuration embedded in Client
+ * Controls Abby's client-specific behavior and messaging context
+ */
+@Schema({ _id: false })
+export class BusinessConfig {
+  @Prop({ default: 'Abby' })
+  assistantName: string;
+
+  @Prop({ default: 'AI sales assistant' })
+  assistantRole: string;
+
+  @Prop({ default: '' })
+  brandVoice: string;
+
+  @Prop({ default: '' })
+  valueProposition: string;
+
+  @Prop({ default: '' })
+  qualificationGoal: string;
+
+  @Prop({ type: [String], default: [] })
+  responseRules: string[];
+}
+
+export const BusinessConfigSchema = SchemaFactory.createForClass(BusinessConfig);
+
+/**
  * Client Schema — The tenant model
  * 
  * Each client represents one customer who has installed WebChatSales.
@@ -146,6 +173,10 @@ export class Client {
   // Demo mode flag
   @Prop({ default: false })
   isDemoMode: boolean;
+
+  // Client-specific Abby behavior configuration
+  @Prop({ type: BusinessConfigSchema, default: () => ({}) })
+  businessConfig: BusinessConfig;
 
   // Metadata
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
