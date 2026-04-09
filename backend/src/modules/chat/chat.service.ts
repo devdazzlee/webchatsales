@@ -16,8 +16,17 @@ import { config } from '../../config/config';
 
 @Injectable()
 export class ChatService {
-  private openaiClient: OpenAI;
-  private model: string;
+  private defaultOpenaiClient: OpenAI;
+  private defaultModel: string;
+  private readonly maxInferenceHistoryMessages = 8;
+  private readonly emptyBusinessConfig = {
+    assistantName: '',
+    assistantRole: '',
+    brandVoice: '',
+    valueProposition: '',
+    qualificationGoal: '',
+    responseRules: [] as string[],
+  };
 
   constructor(
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
@@ -37,7 +46,7 @@ export class ChatService {
       process.env.OPENAI_API_KEY;
     
     // Get model name from environment or use default
-    this.model = 
+    this.defaultModel = 
       this.configService.get<string>('OPENAI_MODEL') || 
       process.env.OPENAI_MODEL || 
       'gpt-4o-mini';
@@ -50,15 +59,134 @@ export class ChatService {
     }
     
     // Initialize OpenAI client
-    this.openaiClient = new OpenAI({
+    this.defaultOpenaiClient = new OpenAI({
       apiKey: openaiApiKey,
     });
     
-    console.log(`[ChatService] ✅ OpenAI API initialized with model: ${this.model} (key ends with: ${openaiApiKey.substring(openaiApiKey.length - 6)})`);
+    console.log(`[ChatService] ✅ OpenAI API initialized with model: ${this.defaultModel} (key ends with: ${openaiApiKey.substring(openaiApiKey.length - 6)})`);
   }
 
-  private async getClientContextForPrompt(clientId: string): Promise<{
+  private async resolveAiRuntime(clientId?: string): Promise<{
+    client: OpenAI;
+    model: string;
+    source: 'tenant' | 'default';
+  }> {
+    if (!clientId) {
+      return {
+        client: this.defaultOpenaiClient,
+        model: this.defaultModel,
+        source: 'default',
+      };
+    }
+
+    const tenant = await this.tenantService.findById(clientId);
+    if (!tenant) {
+      throw new Error(`Tenant not found for clientId: ${clientId}`);
+    }
+
+    const tenantApiKey = tenant.openaiApiKey?.trim();
+    const tenantModel = tenant.openaiModel?.trim() || this.defaultModel;
+
+    if (!tenantApiKey) {
+      return {
+        client: this.defaultOpenaiClient,
+        model: tenantModel,
+        source: 'default',
+      };
+    }
+
+    return {
+      client: new OpenAI({ apiKey: tenantApiKey }),
+      model: tenantModel,
+      source: 'tenant',
+    };
+  }
+
+  private async inferMissingBusinessConfig(client: any, conversation: any, userMessage: string): Promise<{
+    assistantName?: string;
+    assistantRole?: string;
+    brandVoice?: string;
+    valueProposition?: string;
+    qualificationGoal?: string;
+    responseRules?: string[];
+  }> {
+    const recentMessages = (conversation?.messages || [])
+      .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+      .slice(-this.maxInferenceHistoryMessages)
+      .map((m: any) => `${m.role}: ${m.content}`)
+      .join('\n');
+
+    const existing = client.businessConfig || {};
+    const inferencePrompt = `Infer missing business chat configuration for a tenant assistant.
+
+Tenant profile:
+- companyName: ${client.name || ''}
+- industry: ${client.industry || ''}
+- website: ${client.companyWebsite || ''}
+- allowedDomains: ${(client.allowedDomains || []).join(', ')}
+
+Existing config (may be partial):
+- assistantName: ${existing.assistantName || ''}
+- assistantRole: ${existing.assistantRole || ''}
+- brandVoice: ${existing.brandVoice || ''}
+- valueProposition: ${existing.valueProposition || ''}
+- qualificationGoal: ${existing.qualificationGoal || ''}
+- responseRules: ${JSON.stringify(existing.responseRules || [])}
+
+Latest user message:
+${userMessage}
+
+Recent conversation:
+${recentMessages || '(none)'}
+
+Return ONLY JSON with:
+{
+  "assistantName": string,
+  "assistantRole": string,
+  "brandVoice": string,
+  "valueProposition": string,
+  "qualificationGoal": string,
+  "responseRules": string[]
+}
+
+Requirements:
+- Keep values concise and practical for sales chat.
+- Do not mention competitor or platform brands unless present in tenant profile.
+- responseRules: 3-6 concrete behavioral rules.
+- No markdown.`;
+
+    try {
+      const response = await this.defaultOpenaiClient.chat.completions.create({
+        model: this.defaultModel,
+        messages: [
+          { role: 'system', content: 'You infer tenant business assistant configuration and return strict JSON only.' },
+          { role: 'user', content: inferencePrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.4,
+        max_tokens: 350,
+      });
+
+      const parsed = JSON.parse(response.choices[0]?.message?.content || '{}');
+      return {
+        assistantName: typeof parsed.assistantName === 'string' ? parsed.assistantName.trim() : undefined,
+        assistantRole: typeof parsed.assistantRole === 'string' ? parsed.assistantRole.trim() : undefined,
+        brandVoice: typeof parsed.brandVoice === 'string' ? parsed.brandVoice.trim() : undefined,
+        valueProposition: typeof parsed.valueProposition === 'string' ? parsed.valueProposition.trim() : undefined,
+        qualificationGoal: typeof parsed.qualificationGoal === 'string' ? parsed.qualificationGoal.trim() : undefined,
+        responseRules: Array.isArray(parsed.responseRules)
+          ? parsed.responseRules.filter((rule: unknown) => typeof rule === 'string' && rule.trim().length > 0)
+          : undefined,
+      };
+    } catch (error) {
+      console.warn('[ChatService] Business config inference failed:', error);
+      return {};
+    }
+  }
+
+  private async getClientContextForPrompt(clientId: string, conversation: any, userMessage: string): Promise<{
     companyName: string;
+    industry?: string;
     assistantName: string;
     assistantRole: string;
     brandVoice: string;
@@ -68,25 +196,132 @@ export class ChatService {
   }> {
     const client = await this.tenantService.findById(clientId);
     if (!client) {
-      return {
-        companyName: process.env.CLIENT_COMPANY_NAME || 'WebChatSales',
-        assistantName: 'Abby',
-        assistantRole: 'AI sales assistant',
-        brandVoice: '',
-        valueProposition: '',
-        qualificationGoal: '',
-        responseRules: [],
-      };
+      throw new Error(`Tenant not found for clientId: ${clientId}`);
     }
 
+    const existingConfig: {
+      assistantName: string;
+      assistantRole: string;
+      brandVoice: string;
+      valueProposition: string;
+      qualificationGoal: string;
+      responseRules: string[];
+    } = {
+      ...this.emptyBusinessConfig,
+      ...(client.businessConfig || {}),
+    };
+    const needsInference =
+      !existingConfig.assistantName?.trim() ||
+      !existingConfig.assistantRole?.trim() ||
+      !existingConfig.brandVoice?.trim() ||
+      !existingConfig.valueProposition?.trim() ||
+      !existingConfig.qualificationGoal?.trim() ||
+      !Array.isArray(existingConfig.responseRules) ||
+      existingConfig.responseRules.length === 0;
+
+    let inferredConfig: any = {};
+    if (needsInference) {
+      inferredConfig = await this.inferMissingBusinessConfig(client, conversation, userMessage);
+
+      const mergedConfig: {
+        assistantName: string;
+        assistantRole: string;
+        brandVoice: string;
+        valueProposition: string;
+        qualificationGoal: string;
+        responseRules: string[];
+      } = {
+        ...existingConfig,
+        assistantName:
+          existingConfig.assistantName?.trim() ||
+          inferredConfig.assistantName?.trim() ||
+          existingConfig.assistantName,
+        assistantRole:
+          existingConfig.assistantRole?.trim() ||
+          inferredConfig.assistantRole?.trim() ||
+          existingConfig.assistantRole,
+        brandVoice:
+          existingConfig.brandVoice?.trim() ||
+          inferredConfig.brandVoice?.trim() ||
+          existingConfig.brandVoice,
+        valueProposition:
+          existingConfig.valueProposition?.trim() ||
+          inferredConfig.valueProposition?.trim() ||
+          existingConfig.valueProposition,
+        qualificationGoal:
+          existingConfig.qualificationGoal?.trim() ||
+          inferredConfig.qualificationGoal?.trim() ||
+          existingConfig.qualificationGoal,
+        responseRules:
+          (existingConfig.responseRules && existingConfig.responseRules.length > 0)
+            ? existingConfig.responseRules
+            : (inferredConfig.responseRules && inferredConfig.responseRules.length > 0)
+              ? inferredConfig.responseRules
+              : [],
+      };
+
+      const changed =
+        mergedConfig.assistantName !== existingConfig.assistantName ||
+        mergedConfig.assistantRole !== existingConfig.assistantRole ||
+        mergedConfig.brandVoice !== existingConfig.brandVoice ||
+        mergedConfig.valueProposition !== existingConfig.valueProposition ||
+        mergedConfig.qualificationGoal !== existingConfig.qualificationGoal ||
+        mergedConfig.responseRules.join('|') !== (existingConfig.responseRules || []).join('|');
+
+      if (changed) {
+        await this.tenantService.updateClient(clientId, {
+          businessConfig: mergedConfig,
+        } as any);
+      }
+
+      client.businessConfig = mergedConfig as any;
+      if (changed) {
+        console.log(`[ChatService] ✅ Auto-healed missing businessConfig fields for tenant ${clientId}`);
+      }
+    }
+
+    const finalConfig: {
+      assistantName: string;
+      assistantRole: string;
+      brandVoice: string;
+      valueProposition: string;
+      qualificationGoal: string;
+      responseRules: string[];
+    } = {
+      ...this.emptyBusinessConfig,
+      ...(client.businessConfig || {}),
+    };
+    const companyName = (client.name || '').trim() || 'the business';
+    const industry = (client.industry || '').trim();
+    const runtimeConfig = {
+      assistantName: finalConfig.assistantName?.trim() || 'Abby',
+      assistantRole: finalConfig.assistantRole?.trim() || 'AI assistant',
+      brandVoice: finalConfig.brandVoice?.trim() || 'clear, helpful, and conversational',
+      valueProposition:
+        finalConfig.valueProposition?.trim() ||
+        `Help ${companyName} qualify leads and convert conversations into opportunities.`,
+      qualificationGoal:
+        finalConfig.qualificationGoal?.trim() ||
+        'Understand visitor intent, qualify fit, and move serious leads to next steps.',
+      responseRules:
+        Array.isArray(finalConfig.responseRules) && finalConfig.responseRules.length > 0
+          ? finalConfig.responseRules
+          : [
+              'Keep responses concise and helpful.',
+              'Ask one clear next-step question at a time.',
+              'Adapt tone to the user while staying professional.',
+            ],
+    };
+
     return {
-      companyName: client.name || process.env.CLIENT_COMPANY_NAME || 'WebChatSales',
-      assistantName: client.businessConfig?.assistantName || client.widgetConfig?.agentName || 'Abby',
-      assistantRole: client.businessConfig?.assistantRole || 'AI sales assistant',
-      brandVoice: client.businessConfig?.brandVoice || '',
-      valueProposition: client.businessConfig?.valueProposition || '',
-      qualificationGoal: client.businessConfig?.qualificationGoal || '',
-      responseRules: client.businessConfig?.responseRules || [],
+      companyName,
+      industry,
+      assistantName: runtimeConfig.assistantName,
+      assistantRole: runtimeConfig.assistantRole,
+      brandVoice: runtimeConfig.brandVoice,
+      valueProposition: runtimeConfig.valueProposition,
+      qualificationGoal: runtimeConfig.qualificationGoal,
+      responseRules: runtimeConfig.responseRules,
     };
   }
 
@@ -176,10 +411,29 @@ export class ChatService {
    * 6. After-hours pain - "What happens when leads come in after hours?"
    * 7. [Tie-back] - Automatic transition, not a question
    */
-  private getNextSalesAgentDiscoveryQuestion(existingLead: any): string | null {
-    // Step 2: Business type
+  private getNextSalesAgentDiscoveryQuestion(existingLead: any, conversation?: any): string | null {
+    const assistantHistory = (conversation?.messages || [])
+      .filter((m: any) => m.role === 'assistant')
+      .map((m: any) => (m.content || '').toLowerCase());
+    const hasAskedBusinessType = assistantHistory.some((text: string) =>
+      text.includes('what type of business is this'),
+    );
+    const hasAskedName = assistantHistory.some((text: string) =>
+      text.includes('who am i speaking with') || text.includes("what's your name"),
+    );
+
+    // Step 1: Business type (ask first)
     if (!existingLead?.businessType) {
+      // If we've already asked business type once and still don't have it,
+      // move forward to name so conversation does not feel stuck/repetitive.
+      if (hasAskedBusinessType && !existingLead?.name && !hasAskedName) {
+        return "Who am I speaking with?";
+      }
       return "What type of business is this?";
+    }
+    // Step 2: Name
+    if (!existingLead?.name) {
+      return "Who am I speaking with?";
     }
     // Step 3: Lead source
     if (!existingLead?.leadSource) {
@@ -232,7 +486,8 @@ export class ChatService {
     
     if (!isDemoMode) {
       // Sales agent flow: Check discovery first, then qualification
-      const discoveryQuestion = this.getNextSalesAgentDiscoveryQuestion(existingLead);
+      const conversation = await this.getConversation(clientId, sessionId);
+      const discoveryQuestion = this.getNextSalesAgentDiscoveryQuestion(existingLead, conversation);
       if (discoveryQuestion) {
         return discoveryQuestion;
       }
@@ -286,8 +541,8 @@ export class ChatService {
       // SENIOR APPROACH: Use AI to determine if budget is "unknown" type answer
       const budgetValue = existingLead.budget.trim();
       try {
-        const budgetCheckResponse = await this.openaiClient.chat.completions.create({
-          model: this.model,
+        const budgetCheckResponse = await this.defaultOpenaiClient.chat.completions.create({
+          model: this.defaultModel,
           messages: [
             { 
               role: 'system', 
@@ -537,8 +792,8 @@ ${isServiceNeedField ? '' : `- serviceNeed "consultation" → VALID
 
 Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
 
-      const response = await this.openaiClient.chat.completions.create({
-        model: this.model,
+      const response = await this.defaultOpenaiClient.chat.completions.create({
+        model: this.defaultModel,
         messages: [
           { 
             role: 'system', 
@@ -803,7 +1058,7 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     // The AI analyzes intent naturally - no hardcoded detection
     // We just pass collected data for context
     
-    const clientContext = await this.getClientContextForPrompt(clientId);
+    const clientContext = await this.getClientContextForPrompt(clientId, conversation, userMessage);
 
     const systemPrompt = this.salesAgentPrompt.buildSalesAgentPrompt({
         conversationPhase,
@@ -842,7 +1097,10 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       }
     }
 
-    console.log(`[ChatService] Calling OpenAI API with model: ${this.model}, message count: ${messages.length}`);
+    const aiRuntime = await this.resolveAiRuntime(clientId);
+    console.log(
+      `[ChatService] Calling OpenAI API with model: ${aiRuntime.model} (${aiRuntime.source}), message count: ${messages.length}`,
+    );
     
     let fullResponse = '';
     const maxRetries = 2;
@@ -857,8 +1115,8 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
         }
         
       // Call OpenAI API with streaming
-      const stream = await this.openaiClient.chat.completions.create({
-        model: this.model,
+      const stream = await aiRuntime.client.chat.completions.create({
+        model: aiRuntime.model,
         messages: messages as any,
         temperature: 0.7,
         stream: true,
@@ -975,8 +1233,8 @@ DO NOT create tickets for:
 
 Respond with JSON: {"isSupportIssue": true/false, "reason": "brief explanation", "category": "technical|complaint|question|other"}`;
 
-      const response = await this.openaiClient.chat.completions.create({
-        model: this.model,
+      const response = await this.defaultOpenaiClient.chat.completions.create({
+        model: this.defaultModel,
         messages: [
           {
             role: 'system',
@@ -1099,8 +1357,8 @@ Analyze and return JSON with:
 
 Return JSON: {"sentiment": "...", "priority": "...", "priorityReason": "...", "summary": "..."}`;
 
-      const response = await this.openaiClient.chat.completions.create({
-        model: this.model,
+      const response = await this.defaultOpenaiClient.chat.completions.create({
+        model: this.defaultModel,
         messages: [
           {
             role: 'system',
@@ -1153,8 +1411,8 @@ Consider:
 
 Respond with JSON: {"sentiment": "positive|neutral|negative|very_negative", "confidence": 0.0-1.0}`;
 
-      const response = await this.openaiClient.chat.completions.create({
-        model: this.model,
+      const response = await this.defaultOpenaiClient.chat.completions.create({
+        model: this.defaultModel,
         messages: [
           {
             role: 'system',
@@ -1211,8 +1469,8 @@ Consider:
 
 Respond with JSON: {"priority": "low|medium|high|urgent", "reason": "brief explanation"}`;
 
-      const response = await this.openaiClient.chat.completions.create({
-        model: this.model,
+      const response = await this.defaultOpenaiClient.chat.completions.create({
+        model: this.defaultModel,
         messages: [
           {
             role: 'system',
@@ -1266,8 +1524,8 @@ Focus on:
 
 Respond with JSON: {"summary": "brief summary text"}`;
 
-      const response = await this.openaiClient.chat.completions.create({
-        model: this.model,
+      const response = await this.defaultOpenaiClient.chat.completions.create({
+        model: this.defaultModel,
         messages: [
           {
             role: 'system',
@@ -1507,8 +1765,8 @@ Return JSON: ${isDemoMode
   : '{"name": null or "value", "company": null or "value", "email": null or "value", "phone": null or "value", "businessType": null or "value", "leadSource": null or "value", "leadsPerWeek": null or "value", "dealValue": null or "value", "afterHoursPain": null or "value", "serviceNeed": null or "value", "timing": null or "value", "budget": null or "value" or "unknown", "leadsPerDay": null or "value", "overnightLeads": null or "value", "returnCallTiming": null or "value"}'}`;
 
       try {
-        const extractionResponse = await this.openaiClient.chat.completions.create({
-          model: this.model,
+        const extractionResponse = await this.defaultOpenaiClient.chat.completions.create({
+          model: this.defaultModel,
           messages: [
             { role: 'system', content: 'You are a data extraction assistant. Extract lead information from conversations and return only valid JSON.' },
             { role: 'user', content: extractionPrompt },
@@ -1843,8 +2101,8 @@ Return JSON: ${isDemoMode
           })}`;
           
           try {
-            const summaryResponse = await this.openaiClient.chat.completions.create({
-              model: this.model,
+            const summaryResponse = await this.defaultOpenaiClient.chat.completions.create({
+              model: this.defaultModel,
               messages: [
                 { role: 'system', content: 'You are a lead summarization assistant. Create concise summaries.' },
                 { role: 'user', content: summaryPrompt },
@@ -1867,8 +2125,8 @@ Return JSON: ${isDemoMode
             
             if (serviceNeed || timing || budget) {
               try {
-                const tagResponse = await this.openaiClient.chat.completions.create({
-                  model: this.model,
+                const tagResponse = await this.defaultOpenaiClient.chat.completions.create({
+                  model: this.defaultModel,
                   messages: [
                     { 
                       role: 'system', 

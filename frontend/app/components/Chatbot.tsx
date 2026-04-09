@@ -16,6 +16,26 @@ interface Message {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
+const getTenantHeaders = (): Record<string, string> => {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const widgetKey = params.get('widgetKey') || params.get('wcs_widget_key');
+  const clientId = params.get('clientId') || params.get('wcs_client_id');
+
+  const headers: Record<string, string> = {};
+  if (widgetKey) {
+    headers['x-widget-key'] = widgetKey;
+  }
+  if (clientId) {
+    headers['x-client-id'] = clientId;
+  }
+
+  return headers;
+};
+
 export default function Chatbot() {
   const { isOpen, openChatbot, closeChatbot } = useChatbot();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -101,6 +121,7 @@ export default function Chatbot() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getTenantHeaders(),
         },
         body: JSON.stringify({}),
       });
@@ -112,7 +133,7 @@ export default function Chatbot() {
         // CLIENT REQUIREMENT (Jan 2026): Short messages, same flow everywhere
         const greetingMessage: Message = {
           id: '1',
-          text: 'Hi, I\'m Abby with WebChatSales — welcome.\n\nWhat can I help you with today?',
+          text: 'Hi, I\'m Abby.\n\nWhat can I help you with today?',
           sender: 'abby',
           timestamp: new Date(),
         };
@@ -124,6 +145,7 @@ export default function Chatbot() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              ...getTenantHeaders(),
             },
             body: JSON.stringify({
               sessionId: data.sessionId,
@@ -146,8 +168,8 @@ export default function Chatbot() {
           {
             id: '1',
             text: isConnectionError
-              ? 'Hi, I\'m Abby with WebChatSales.\n\nI can\'t connect to the server right now.\n\nPlease check if the backend is running.'
-              : 'Hi, I\'m Abby with WebChatSales — welcome.\n\nWhat can I help you with today?',
+              ? 'Hi, I\'m Abby.\n\nI can\'t connect to the server right now.\n\nPlease check if the backend is running.'
+              : 'Hi, I\'m Abby.\n\nWhat can I help you with today?',
             sender: 'abby',
             timestamp: new Date(),
           },
@@ -171,6 +193,7 @@ export default function Chatbot() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...getTenantHeaders(),
           },
           body: JSON.stringify({}),
         });
@@ -184,7 +207,7 @@ export default function Chatbot() {
           if (messages.length === 0) {
             const greetingMessage: Message = {
               id: '1',
-              text: 'Hi, I\'m Abby with WebChatSales — welcome.\n\nWhat can I help you with today?',
+              text: 'Hi, I\'m Abby.\n\nWhat can I help you with today?',
               sender: 'abby',
               timestamp: new Date(),
             };
@@ -240,6 +263,7 @@ export default function Chatbot() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getTenantHeaders(),
         },
         body: JSON.stringify({
           sessionId: currentSessionId,
@@ -519,6 +543,7 @@ export default function Chatbot() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getTenantHeaders(),
         },
         body: JSON.stringify({
           sessionId,

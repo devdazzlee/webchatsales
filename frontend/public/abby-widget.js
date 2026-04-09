@@ -6,10 +6,22 @@
   'use strict';
 
   // Configuration
+  const currentScript = document.currentScript;
+  const scriptWidgetKey =
+    (currentScript && currentScript.getAttribute('data-widget-key')) ||
+    (window.AbbyWidgetConfig && window.AbbyWidgetConfig.widgetKey) ||
+    '';
+  const scriptClientId =
+    (currentScript && currentScript.getAttribute('data-client-id')) ||
+    (window.AbbyWidgetConfig && window.AbbyWidgetConfig.clientId) ||
+    '';
+
   const CONFIG = {
     apiUrl: 'https://yahir-unscorched-pierre.ngrok-free.dev',
     widgetId: 'abby-widget-' + Date.now(),
     position: 'bottom-right',
+    widgetKey: scriptWidgetKey,
+    clientId: scriptClientId,
   };
 
   // Create widget container
@@ -33,7 +45,15 @@
     // Create iframe for the chat widget
     const iframe = document.createElement('iframe');
     iframe.id = CONFIG.widgetId + '-iframe';
-    iframe.src = `${CONFIG.apiUrl.replace('/api', '')}/widget?embed=true`;
+    const iframeUrl = new URL(`${CONFIG.apiUrl.replace('/api', '')}/widget`);
+    iframeUrl.searchParams.set('embed', 'true');
+    if (CONFIG.widgetKey) {
+      iframeUrl.searchParams.set('widgetKey', CONFIG.widgetKey);
+    }
+    if (CONFIG.clientId) {
+      iframeUrl.searchParams.set('clientId', CONFIG.clientId);
+    }
+    iframe.src = iframeUrl.toString();
     iframe.style.cssText = `
       width: 384px;
       height: 600px;
