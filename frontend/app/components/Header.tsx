@@ -32,6 +32,12 @@ export default function Header() {
               </div>
             </div>
           </div>
+          <button
+            onClick={() => router.push('/intake')}
+            className="px-4 py-2 rounded text-black font-medium bg-gradient-emerald hover:opacity-90 transition-opacity"
+          >
+            Start Onboarding
+          </button>
         </div>
       </div>
     </header>

@@ -412,46 +412,40 @@ Requirements:
    * 7. [Tie-back] - Automatic transition, not a question
    */
   private getNextSalesAgentDiscoveryQuestion(existingLead: any, conversation?: any): string | null {
-    const assistantHistory = (conversation?.messages || [])
-      .filter((m: any) => m.role === 'assistant')
-      .map((m: any) => (m.content || '').toLowerCase());
-    const hasAskedBusinessType = assistantHistory.some((text: string) =>
-      text.includes('what type of business is this'),
-    );
-    const hasAskedName = assistantHistory.some((text: string) =>
-      text.includes('who am i speaking with') || text.includes("what's your name"),
-    );
-
-    // Step 1: Business type (ask first)
-    if (!existingLead?.businessType) {
-      // If we've already asked business type once and still don't have it,
-      // move forward to name so conversation does not feel stuck/repetitive.
-      if (hasAskedBusinessType && !existingLead?.name && !hasAskedName) {
-        return "Who am I speaking with?";
-      }
-      return "What type of business is this?";
-    }
-    // Step 2: Name
+    // Required early context (client request): identity + company + problem + contact.
     if (!existingLead?.name) {
-      return "Who am I speaking with?";
+      return 'Who am I speaking with?';
     }
-    // Step 3: Lead source
+    if (!existingLead?.company) {
+      return "What company are you with?";
+    }
+    if (!existingLead?.serviceNeed) {
+      return "What problem are you trying to solve right now?";
+    }
+    if (!existingLead?.email) {
+      return "What's the best email for follow-up?";
+    }
+    if (!existingLead?.phone) {
+      return "What's the best phone number for follow-up?";
+    }
+
+    // Continue qualification depth after core identity/problem capture.
+    if (!existingLead?.businessType) {
+      return 'What type of business is this?';
+    }
     if (!existingLead?.leadSource) {
-      return "How do leads usually come in for you?";
+      return 'How do leads usually come in for you?';
     }
-    // Step 4: Leads per week
     if (!existingLead?.leadsPerWeek) {
-      return "Roughly how many per week?";
+      return 'Roughly how many per week?';
     }
-    // Step 5: Deal value
     if (!existingLead?.dealValue) {
       return "What's a typical deal or job worth?";
     }
-    // Step 6: After-hours pain
     if (!existingLead?.afterHoursPain) {
-      return "What happens when leads come in after hours or when you're busy?";
+      return 'What happens when leads come in after hours or when you are busy?';
     }
-    return null; // Discovery complete - ready for tie-back and closing
+    return null;
   }
 
   /**
@@ -459,14 +453,8 @@ Requirements:
    * Only collect email + business name when closing
    */
   private getNextSalesAgentQualificationQuestion(existingLead: any): string | null {
-    // Sales agent qualification: email → phone (for closing)
-    if (!existingLead?.email) {
-      return "What's your email?";
-    }
-    if (!existingLead?.phone) {
-      return "And your phone number?";
-    }
-    return null; // Qualification complete - ready for closing
+    // Contact details are now collected in early discovery.
+    return null;
   }
 
   /**
@@ -2189,8 +2177,13 @@ Return JSON: ${isDemoMode
           const finalDealValue = leadData.dealValue !== undefined ? leadData.dealValue : lead?.dealValue;
           const finalAfterHoursPain = leadData.afterHoursPain !== undefined ? leadData.afterHoursPain : lead?.afterHoursPain;
           
-          // Check if all 9-step flow fields are collected
+          const finalCompany = leadData.company !== undefined ? leadData.company : lead?.company;
+
+          // Check if all required sales-agent fields are collected
           const hasAll9StepFields = finalName && 
+                                   finalCompany &&
+                                   finalServiceNeed &&
+                                   finalPhone &&
                                    finalBusinessType && 
                                    finalLeadSource && 
                                    finalLeadsPerWeek && 
@@ -2227,6 +2220,7 @@ Return JSON: ${isDemoMode
             
             console.log(`[ChatService] ✅ Lead updated for session ${sessionId}`, {
               name: updatedLead?.name,
+              company: updatedLead?.company,
               email: updatedLead?.email,
               phone: updatedLead?.phone,
               serviceNeed: updatedLead?.serviceNeed,
@@ -2235,6 +2229,28 @@ Return JSON: ${isDemoMode
               status: updatedLead?.status || 'new'
             });
             
+            // Send "new lead captured" alert once, when core identity/problem data first exists.
+            if (
+              updatedLead &&
+              !updatedLead.newLeadAlertSent &&
+              (updatedLead.name || updatedLead.email || updatedLead.company || updatedLead.serviceNeed)
+            ) {
+              this.notificationService
+                .notifyNewLead({
+                  clientId,
+                  sessionId,
+                  name: updatedLead.name,
+                  company: updatedLead.company,
+                  email: updatedLead.email,
+                  phone: updatedLead.phone,
+                  serviceNeed: updatedLead.serviceNeed,
+                  timestamp: new Date(),
+                })
+                .catch((err) => console.error('[ChatService] Error sending new lead notification:', err));
+
+              await this.leadService.updateLead(clientId, sessionId, { newLeadAlertSent: true });
+            }
+
             // Send notification if lead just became qualified
             if (leadData._shouldNotify && updatedLead?.status === 'qualified') {
               await this.sendQualifiedLeadNotification(clientId, sessionId, updatedLead, conversation);
@@ -2297,16 +2313,21 @@ Return JSON: ${isDemoMode
             });
 
             // 🔔 NOTIFICATION: New lead captured alert (first time lead info is collected)
-            this.notificationService.notifyNewLead({
-              clientId,
-              sessionId,
-              name: leadData.name,
-              email: leadData.email,
-              phone: leadData.phone,
-              serviceNeed: leadData.serviceNeed,
-              timestamp: new Date(),
-            }).catch(err => console.error('[ChatService] Error sending new lead notification:', err));
-            console.log(`[ChatService] 🔔 New lead notification triggered for ${sessionId}`);
+            if (leadData.name || leadData.email || leadData.company || leadData.serviceNeed) {
+              this.notificationService.notifyNewLead({
+                clientId,
+                sessionId,
+                name: leadData.name,
+                company: leadData.company,
+                email: leadData.email,
+                phone: leadData.phone,
+                serviceNeed: leadData.serviceNeed,
+                timestamp: new Date(),
+              }).catch(err => console.error('[ChatService] Error sending new lead notification:', err));
+
+              await this.leadService.updateLead(clientId, sessionId, { newLeadAlertSent: true });
+              console.log(`[ChatService] 🔔 New lead notification triggered for ${sessionId}`);
+            }
 
             // If lead is qualified (has all required fields including phone), send transcript to admin
             // Check final state after creation

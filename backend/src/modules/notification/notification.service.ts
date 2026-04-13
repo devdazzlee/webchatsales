@@ -394,6 +394,7 @@ export class NotificationService {
     clientId?: string;
     sessionId: string;
     name?: string;
+    company?: string;
     email?: string;
     phone?: string;
     serviceNeed?: string;
@@ -444,9 +445,10 @@ export class NotificationService {
               <div class="info-box">
                 <p><span class="label">Time:</span> ${timeStr}</p>
                 ${data.name ? `<p><span class="label">Name:</span> ${data.name}</p>` : ''}
+                ${data.company ? `<p><span class="label">Company:</span> ${data.company}</p>` : ''}
                 ${data.email ? `<p><span class="label">Email:</span> ${data.email}</p>` : ''}
                 ${data.phone ? `<p><span class="label">Phone:</span> ${data.phone}</p>` : ''}
-                ${data.serviceNeed ? `<p><span class="label">Interest:</span> ${data.serviceNeed}</p>` : ''}
+                ${data.serviceNeed ? `<p><span class="label">Problem to Solve:</span> ${data.serviceNeed}</p>` : ''}
               </div>
 
               <p style="font-size: 13px; color: #6b7280;">Session ID: <code>${data.sessionId}</code></p>

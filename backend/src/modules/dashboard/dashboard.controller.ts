@@ -1,8 +1,19 @@
-import { Controller, Get, Query, Param, Post, Body, UseGuards, SetMetadata } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { ClientId, SkipTenant } from '../tenant/tenant.decorator';
 import { TenantGuard } from '../tenant/tenant.guard';
+import { Request } from 'express';
 
 @Controller('api/dashboard')
 @UseGuards(AuthGuard, TenantGuard)
@@ -132,6 +143,38 @@ export class DashboardController {
     return {
       success: true,
       data: details,
+    };
+  }
+
+  @Get('intake-submissions')
+  @SkipTenant()
+  async getIntakeSubmissions(
+    @Req() req: Request,
+    @Query('clientId') requestedClientId?: string,
+    @Query('limit') limit?: string,
+    @Query('skip') skip?: string,
+  ) {
+    const user = (req as any).user || {};
+    const isSuperAdmin = user.role === 'super_admin';
+    const userClientId = user.clientId as string | undefined;
+
+    if (!isSuperAdmin && !userClientId) {
+      throw new ForbiddenException('Client admin context required');
+    }
+
+    if (!isSuperAdmin && requestedClientId && requestedClientId !== userClientId) {
+      throw new ForbiddenException('Cannot access intake submissions for another client');
+    }
+
+    const result = await this.dashboardService.getIntakeSubmissions({
+      clientId: isSuperAdmin ? requestedClientId : userClientId,
+      limit: limit ? parseInt(limit, 10) : 100,
+      skip: skip ? parseInt(skip, 10) : 0,
+    });
+
+    return {
+      success: true,
+      ...result,
     };
   }
 

@@ -133,7 +133,7 @@ export default function Chatbot() {
         // CLIENT REQUIREMENT (Jan 2026): Short messages, same flow everywhere
         const greetingMessage: Message = {
           id: '1',
-          text: 'Hi, I\'m Abby.\n\nWhat can I help you with today?',
+          text: 'Hi, I\'m Abby.\n\nWho am I speaking with, and what company are you with?',
           sender: 'abby',
           timestamp: new Date(),
         };

@@ -6,6 +6,10 @@ import { Lead, LeadDocument } from '../../schemas/lead.schema';
 import { SupportTicket, SupportTicketDocument } from '../../schemas/support-ticket.schema';
 import { Payment, PaymentDocument } from '../../schemas/payment.schema';
 import { Booking, BookingDocument } from '../../schemas/booking.schema';
+import {
+  IntakeSubmission,
+  IntakeSubmissionDocument,
+} from '../../schemas/intake-submission.schema';
 
 @Injectable()
 export class DashboardService {
@@ -15,6 +19,8 @@ export class DashboardService {
     @InjectModel(SupportTicket.name) private supportTicketModel: Model<SupportTicketDocument>,
     @InjectModel(Payment.name) private paymentModel: Model<PaymentDocument>,
     @InjectModel(Booking.name) private bookingModel: Model<BookingDocument>,
+    @InjectModel(IntakeSubmission.name)
+    private intakeSubmissionModel: Model<IntakeSubmissionDocument>,
   ) {}
 
   async getDashboardStats(clientId: string) {
@@ -287,6 +293,54 @@ export class DashboardService {
       ticket,
       booking,
       payment,
+    };
+  }
+
+  async getIntakeSubmissions(options?: { clientId?: string; limit?: number; skip?: number }) {
+    const query: Record<string, unknown> = {};
+    if (options?.clientId) {
+      query.clientId = options.clientId;
+    }
+
+    const limit = options?.limit ?? 100;
+    const skip = options?.skip ?? 0;
+
+    const [submissions, total] = await Promise.all([
+      this.intakeSubmissionModel
+        .find(query)
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .skip(skip)
+        .populate('clientId', 'name slug ownerEmail widgetKey')
+        .exec(),
+      this.intakeSubmissionModel.countDocuments(query),
+    ]);
+
+    const frontendBase =
+      process.env.FRONTEND_URL?.replace(/\/$/, '') || 'http://localhost:3000';
+
+    const enrichedSubmissions = submissions.map((submission: any) => {
+      const widgetKey = submission?.clientId?.widgetKey;
+      const widgetLink = widgetKey
+        ? `${frontendBase}/widget?widgetKey=${encodeURIComponent(widgetKey)}`
+        : null;
+      const widgetEmbedScript = widgetKey
+        ? `<script src="${frontendBase}/abby-widget.js" data-widget-key="${widgetKey}"><\/script>`
+        : null;
+
+      return {
+        ...submission.toObject(),
+        widgetKey: widgetKey || null,
+        widgetLink,
+        widgetEmbedScript,
+      };
+    });
+
+    return {
+      submissions: enrichedSubmissions,
+      total,
+      limit,
+      skip,
     };
   }
 }

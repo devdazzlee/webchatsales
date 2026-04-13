@@ -8,6 +8,10 @@ import { Lead, LeadSchema } from '../../schemas/lead.schema';
 import { SupportTicket, SupportTicketSchema } from '../../schemas/support-ticket.schema';
 import { Payment, PaymentSchema } from '../../schemas/payment.schema';
 import { Booking, BookingSchema } from '../../schemas/booking.schema';
+import {
+  IntakeSubmission,
+  IntakeSubmissionSchema,
+} from '../../schemas/intake-submission.schema';
 
 @Module({
   imports: [
@@ -18,6 +22,7 @@ import { Booking, BookingSchema } from '../../schemas/booking.schema';
       { name: SupportTicket.name, schema: SupportTicketSchema },
       { name: Payment.name, schema: PaymentSchema },
       { name: Booking.name, schema: BookingSchema },
+      { name: IntakeSubmission.name, schema: IntakeSubmissionSchema },
     ]),
   ],
   controllers: [DashboardController],

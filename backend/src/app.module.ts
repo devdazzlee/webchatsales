@@ -11,6 +11,7 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { BookingModule } from './modules/booking/booking.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { IntakeModule } from './modules/intake/intake.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { AuthModule } from './modules/auth/auth.module';
     BookingModule,
     DashboardModule,
     AuthModule,
+    IntakeModule,
   ],
 })
 export class AppModule {

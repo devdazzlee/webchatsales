@@ -105,6 +105,10 @@ export class Lead {
   // New field: Track if buying intent was detected
   @Prop({ default: false })
   hasBuyingIntent: boolean;
+
+  // Track whether "new lead captured" email alert was already sent
+  @Prop({ default: false })
+  newLeadAlertSent: boolean;
 }
 
 export const LeadSchema = SchemaFactory.createForClass(Lead);

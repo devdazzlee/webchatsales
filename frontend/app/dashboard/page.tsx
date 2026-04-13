@@ -10,10 +10,11 @@ import TicketsList from '../components/dashboard/TicketsList';
 import PaymentsList from '../components/dashboard/PaymentsList';
 import BookingsList from '../components/dashboard/BookingsList';
 import ConversationDetail from '../components/dashboard/ConversationDetail';
+import IntakeSubmissionsList from '../components/dashboard/IntakeSubmissionsList';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
-type TabType = 'overview' | 'conversations' | 'leads' | 'tickets' | 'payments' | 'bookings';
+type TabType = 'overview' | 'conversations' | 'leads' | 'tickets' | 'payments' | 'bookings' | 'intake';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -142,6 +143,7 @@ export default function DashboardPage() {
               { id: 'tickets', label: 'Support Tickets' },
               { id: 'payments', label: 'Payments' },
               { id: 'bookings', label: 'Bookings' },
+              { id: 'intake', label: 'Intake' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -179,6 +181,7 @@ export default function DashboardPage() {
         {activeTab === 'tickets' && <TicketsList />}
         {activeTab === 'payments' && <PaymentsList />}
         {activeTab === 'bookings' && <BookingsList />}
+        {activeTab === 'intake' && <IntakeSubmissionsList />}
       </main>
     </div>
   );
