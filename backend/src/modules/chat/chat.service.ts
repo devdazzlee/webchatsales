@@ -1006,9 +1006,12 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
     // Don't skip qualification just because someone asks "what do you need"
     let conversationPhase: 'opening' | 'discovery' | 'qualification' | 'objection' | 'closing' | 'buying_intent' = 'opening';
     
-    // Check if basic qualification is complete
+    // Check if basic qualification is complete — leads/week + deal value are the KEY numbers
     const hasBasicQualification = lead?.name && lead?.businessType && 
-                                  (lead?.leadSource || lead?.leadsPerWeek || lead?.dealValue || lead?.afterHoursPain);
+                                  !!(lead?.leadsPerWeek && lead?.dealValue);
+    
+    // Has the numbers needed for pain calculation
+    const hasNumbersForPainCalc = !!(lead?.leadsPerWeek && lead?.dealValue);
     
     if (hasBuyingIntent && hasBasicQualification) {
       // Only skip to buying_intent if we have qualification data
@@ -1021,11 +1024,11 @@ Respond with JSON: {"isInvalid": true/false, "reason": "brief explanation"}`;
       hasBuyingIntent = false;
     } else if (!lead?.name) {
       conversationPhase = 'opening';
-    } else if (!lead?.businessType || !lead?.leadSource || !lead?.leadsPerWeek || !lead?.dealValue || !lead?.afterHoursPain) {
+    } else if (!hasNumbersForPainCalc) {
+      // Phase 2: Still need leads/week + deal value to calculate pain
       conversationPhase = 'discovery';
-    } else if (!lead?.email) {
-      conversationPhase = 'qualification';
     } else {
+      // Phase 3→4: Have the numbers — AI calculates pain, then closes
       conversationPhase = 'closing';
     }
     

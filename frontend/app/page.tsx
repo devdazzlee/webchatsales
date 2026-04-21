@@ -1,7 +1,6 @@
 import Header from './components/Header';
 import Hero from './components/Hero';
 import Pricing from './components/Pricing';
-import BetaSignup from './components/BetaSignup';
 import Footer from './components/Footer';
 import Chatbot from './components/Chatbot';
 import { ChatbotProvider } from './components/ChatbotContext';
@@ -14,7 +13,6 @@ export default function Home() {
         <main>
           <Hero />
           <Pricing />
-          <BetaSignup />
           <Footer />
         </main>
         <Chatbot />

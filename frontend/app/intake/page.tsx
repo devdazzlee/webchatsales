@@ -89,10 +89,19 @@ export default function IntakePage() {
     }
 
     try {
+      // Strip empty optional fields so backend validators don't reject empty strings
+      const payload: Record<string, any> = { ...form };
+      const optionalFields = ['ownerPhone', 'companyWebsite', 'industry', 'bookingLink', 'notes'];
+      for (const field of optionalFields) {
+        if (!payload[field] || (typeof payload[field] === 'string' && payload[field].trim() === '')) {
+          delete payload[field];
+        }
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/intake/self-onboard`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
 
       const result = await response.json();
@@ -174,22 +183,36 @@ export default function IntakePage() {
           <input name="companyWebsite" type="url" value={form.companyWebsite} onChange={onFieldChange} placeholder="Company website (optional)" className="w-full px-4 py-3 border rounded" style={{ borderColor: 'var(--line)', background: 'var(--bg)', color: 'var(--ink)' }} />
           <input name="industry" value={form.industry} onChange={onFieldChange} placeholder="Industry (optional)" className="w-full px-4 py-3 border rounded" style={{ borderColor: 'var(--line)', background: 'var(--bg)', color: 'var(--ink)' }} />
 
-          <div>
-            <p className="text-sm mb-2" style={{ color: 'var(--ink)' }}>
+          {/* Services */}
+          <div className="border rounded-lg p-4" style={{ borderColor: 'var(--line)', background: 'var(--bg)' }}>
+            <p className="text-sm font-semibold mb-3" style={{ color: 'var(--ink)' }}>
               Services you want Abby to handle
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {serviceOptions.map((service) => (
-                <label key={service} className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink)' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.servicesOffered.includes(service)}
-                    onChange={() => onServiceToggle(service)}
-                    style={{ accentColor: 'var(--emerald)' }}
-                  />
-                  {service}
-                </label>
-              ))}
+              {serviceOptions.map((service) => {
+                const isSelected = form.servicesOffered.includes(service);
+                return (
+                  <label
+                    key={service}
+                    className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-all"
+                    style={{
+                      borderColor: isSelected ? 'var(--emerald)' : 'var(--line)',
+                      background: isSelected ? 'rgba(0, 255, 153, 0.06)' : 'transparent',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => onServiceToggle(service)}
+                      className="w-4 h-4"
+                      style={{ accentColor: 'var(--emerald)' }}
+                    />
+                    <span className="text-sm font-medium" style={{ color: isSelected ? 'var(--emerald)' : 'var(--ink)' }}>
+                      {service}
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </div>
 

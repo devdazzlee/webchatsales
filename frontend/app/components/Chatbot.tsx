@@ -130,10 +130,10 @@ export default function Chatbot() {
       if (data.success) {
         setSessionId(data.sessionId);
         // Auto-send greeting message
-        // CLIENT REQUIREMENT (Jan 2026): Short messages, same flow everywhere
+        // CLIENT REQUIREMENT: Conversational intro that builds trust
         const greetingMessage: Message = {
           id: '1',
-          text: 'Hi, I\'m Abby.\n\nWho am I speaking with, and what company are you with?',
+          text: 'Hi, I\'m Abby. I help businesses capture and convert website leads 24/7.\n\nWho am I speaking with, and what company are you with?',
           sender: 'abby',
           timestamp: new Date(),
         };
@@ -478,11 +478,11 @@ export default function Chatbot() {
     }
   };
 
-  // Quick questions appropriate for demo mode (explaining WebChatSales, not qualifying leads)
+  // High-converting quick questions that pull visitors into qualifying conversations
   const quickQuestions = [
-    'What does WebChatSales do?',
-    'How does Abby work?',
-    'What features does WebChatSales offer?',
+    'How many leads do you get per week?',
+    'What\'s a typical job worth?',
+    'Do you miss leads after hours?',
   ];
 
   const handleQuickQuestion = async (question: string) => {
@@ -945,7 +945,7 @@ export default function Chatbot() {
           {/* Quick Questions */}
           {messages.length <= 1 && !isLoading && (
             <div className="px-4 py-2 border-t flex-shrink-0" style={{ background: 'var(--panel)', borderColor: 'var(--line)' }}>
-              <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>Quick questions:</p>
+              <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>Let’s start a conversation:</p>
               <div className="flex flex-col gap-2">
                 {quickQuestions.map((question, idx) => (
                   <button
@@ -977,7 +977,7 @@ export default function Chatbot() {
                 type="text"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Type your message..."
+                placeholder="How many leads do you miss after hours?"
                 disabled={isLoading}
                 className="flex-1 px-4 py-2.5 border-2 rounded-lg disabled:opacity-50"
                 style={{ 
