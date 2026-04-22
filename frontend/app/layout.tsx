@@ -15,6 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "WebChatSales - Sales While You Sleep™",
   description: "Abby responds instantly, qualifies buyers, and books meetings. She augments your team - she doesn't replace it.",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({
