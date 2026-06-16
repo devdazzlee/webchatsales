@@ -2422,6 +2422,10 @@ Return JSON: ${isDemoMode
 
       // Resolve admin recipient from tenant config first, then fallback to global.
       const tenant = await this.tenantService.findById(clientId);
+      if (tenant?.emailNotificationsEnabled === false) {
+        console.log(`[ChatService] Email notifications disabled for client ${clientId}, skipping qualified lead email`);
+        return;
+      }
       const adminEmail =
         tenant?.notificationEmail || tenant?.ownerEmail || config.notificationEmail || config.adminEmail;
       if (adminEmail) {

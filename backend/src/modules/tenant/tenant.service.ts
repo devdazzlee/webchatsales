@@ -34,6 +34,7 @@ export class TenantService {
     notificationEmail?: string;
     schedulingLink?: string;
     isDemoMode?: boolean;
+    status?: 'draft' | 'test' | 'live';
     businessConfig?: {
       assistantName?: string;
       assistantRole?: string;
@@ -75,6 +76,7 @@ export class TenantService {
       widgetKey: this.generateWidgetKey(),
       secretKey: this.generateSecretKey(),
       notificationEmail: data.notificationEmail || data.ownerEmail,
+      status: data.status || 'draft',
     });
 
     const saved = await client.save();
@@ -93,7 +95,11 @@ export class TenantService {
    * Find a client by widget key (used by public widget endpoints)
    */
   async findByWidgetKey(widgetKey: string): Promise<ClientDocument | null> {
-    return this.clientModel.findOne({ widgetKey, isActive: true }).exec();
+    const client = await this.clientModel.findOne({ widgetKey, isActive: true }).exec();
+    if (!client || this.isDraftStatus(client.status)) {
+      return null;
+    }
+    return client;
   }
 
   /**
@@ -121,6 +127,10 @@ export class TenantService {
 
     const clients = await this.clientModel.find({ isActive: true }).exec();
     for (const client of clients) {
+      if (this.isDraftStatus(client.status)) {
+        continue;
+      }
+
       const allowed = (client.allowedDomains || [])
         .map((d) => this.normalizeDomain(d))
         .filter((d): d is string => !!d);
@@ -140,10 +150,14 @@ export class TenantService {
     limit?: number;
     skip?: number;
     isActive?: boolean;
+    status?: string;
   }): Promise<{ clients: ClientDocument[]; total: number }> {
     const query: any = {};
     if (options?.isActive !== undefined) {
       query.isActive = options.isActive;
+    }
+    if (options?.status) {
+      query.status = options.status;
     }
 
     const [clients, total] = await Promise.all([
@@ -277,6 +291,10 @@ export class TenantService {
   }
 
   // --- Private helpers ---
+
+  private isDraftStatus(status?: string): boolean {
+    return status === 'draft';
+  }
 
   private generateWidgetKey(): string {
     return `wcs_${crypto.randomBytes(24).toString('hex')}`;

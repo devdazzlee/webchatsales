@@ -64,6 +64,7 @@ export interface TenantContext {
   name: string;           // Client/company name
   slug: string;           // URL-safe identifier
   isActive: boolean;      // Whether the client account is active
+  status: string;           // draft, test, or live
   plan: string;           // Client's plan
   isDemoMode: boolean;    // Whether in demo mode
   

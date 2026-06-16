@@ -34,3 +34,18 @@ export function clearAuth(): void {
   localStorage.removeItem('admin_user');
 }
 
+export function getAdminUser(): { username?: string; role?: string; clientId?: string | null } | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem('admin_user');
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function isSuperAdmin(): boolean {
+  return getAdminUser()?.role === 'super_admin';
+}
+

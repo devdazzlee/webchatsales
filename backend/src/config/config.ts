@@ -1,5 +1,14 @@
+/** Hardcoded Zoho Mail SMTP — used for all outbound email */
+export const smtpConfig = {
+  host: 'smtp.zoho.com',
+  port: 587,
+  secure: false,
+  email: 'matthew@webchatsales.com',
+  password: '3tXtBdg8aymr',
+};
+
 export const config = {
-    adminEmail: "matthew@webchatsales.com",
-    // Client notification email - receives alerts for new conversations, leads, missed questions
-    notificationEmail: process.env.NOTIFICATION_EMAIL || "muaz786m786@gmail.com",
-}
+  adminEmail: 'matthew@webchatsales.com',
+  notificationEmail: 'matthew@webchatsales.com',
+  smtp: smtpConfig,
+};

@@ -59,6 +59,7 @@ export class AuthGuard implements CanActivate {
           name: client.name,
           slug: client.slug,
           isActive: client.isActive,
+          status: client.status || 'draft',
           plan: client.plan,
           isDemoMode: client.isDemoMode || false,
           notificationEmail: client.notificationEmail || client.ownerEmail,

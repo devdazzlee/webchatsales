@@ -11,10 +11,12 @@ import PaymentsList from '../components/dashboard/PaymentsList';
 import BookingsList from '../components/dashboard/BookingsList';
 import ConversationDetail from '../components/dashboard/ConversationDetail';
 import IntakeSubmissionsList from '../components/dashboard/IntakeSubmissionsList';
+import ClientsPanel from '../components/dashboard/ClientsPanel';
+import { isSuperAdmin } from '../utils/auth';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
-type TabType = 'overview' | 'conversations' | 'leads' | 'tickets' | 'payments' | 'bookings' | 'intake';
+type TabType = 'overview' | 'conversations' | 'leads' | 'tickets' | 'payments' | 'bookings' | 'intake' | 'clients';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -22,6 +24,7 @@ export default function DashboardPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   useEffect(() => {
     // Check authentication
@@ -47,6 +50,10 @@ export default function DashboardPage() {
         
         if (data.success && data.valid) {
           setIsAuthenticated(true);
+          setUserRole(data.user?.role || null);
+          if (data.user) {
+            localStorage.setItem('admin_user', JSON.stringify(data.user));
+          }
           setIsLoading(false);
         } else {
           // Token is invalid or expired
@@ -62,6 +69,7 @@ export default function DashboardPage() {
         const hasToken = localStorage.getItem('admin_token');
         if (hasToken) {
           setIsAuthenticated(true);
+          setUserRole(isSuperAdmin() ? 'super_admin' : 'client_admin');
           setIsLoading(false);
         } else {
           router.push('/login');
@@ -144,6 +152,7 @@ export default function DashboardPage() {
               { id: 'payments', label: 'Payments' },
               { id: 'bookings', label: 'Bookings' },
               { id: 'intake', label: 'Intake' },
+              ...(userRole === 'super_admin' ? [{ id: 'clients', label: 'Clients' }] : []),
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -182,6 +191,7 @@ export default function DashboardPage() {
         {activeTab === 'payments' && <PaymentsList />}
         {activeTab === 'bookings' && <BookingsList />}
         {activeTab === 'intake' && <IntakeSubmissionsList />}
+        {activeTab === 'clients' && userRole === 'super_admin' && <ClientsPanel />}
       </main>
     </div>
   );

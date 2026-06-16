@@ -1,79 +1,32 @@
 import { Injectable } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
-import { config } from '../../config/config';
+import { config, smtpConfig } from '../../config/config';
 
 /**
- * Email Service
- * 
- * IMPORTANT: Gmail requires App Passwords (not regular passwords)
- * - Enable 2FA on Gmail account
- * - Generate App Password: https://myaccount.google.com/apppasswords
- * - Use App Password in SMTP_PASSWORD, not your Gmail login password
- * 
- * Error 535-5.7.8 means: Wrong credentials (usually using regular password instead of App Password)
+ * Email Service — all mail sent via hardcoded Zoho SMTP (see config.ts).
  */
 @Injectable()
 export class EmailService {
-  private transporter: nodemailer.Transporter | null = null;
-  private isConfigured: boolean = false;
-  private configError: string | null = null;
+  private transporter: nodemailer.Transporter;
+  private readonly fromEmail = smtpConfig.email;
 
   constructor() {
-    const smtpHost = process.env.SMTP_HOST;
-    const smtpPort = process.env.SMTP_PORT;
-    const smtpEmail = process.env.SMTP_EMAIL;
-    const smtpPassword = process.env.SMTP_PASSWORD;
-
-    // Don't crash if email is not configured - just log warning and disable email
-    if (!smtpEmail || !smtpPassword) {
-      console.warn('[EmailService] ⚠️ SMTP_EMAIL and SMTP_PASSWORD not configured - email sending disabled');
-      console.warn('[EmailService] 📧 To enable email, set SMTP_EMAIL and SMTP_PASSWORD in your .env file');
-      console.warn('[EmailService] 🔑 For Gmail, use an App Password (not your regular password):');
-      console.warn('[EmailService]    1. Enable 2FA on your Gmail account');
-      console.warn('[EmailService]    2. Go to https://myaccount.google.com/apppasswords');
-      console.warn('[EmailService]    3. Generate an App Password for "Mail"');
-      console.warn('[EmailService]    4. Use that 16-character password in SMTP_PASSWORD');
-      this.configError = 'SMTP credentials not configured';
-      return;
-    }
-
-    try {
-      this.transporter = nodemailer.createTransport({
-        host: smtpHost || 'smtp.gmail.com',
-        port: parseInt(smtpPort || '587'),
-        secure: false, // true for 465, false for other ports
-        auth: {
-          user: smtpEmail,
-          pass: smtpPassword,
-        },
-      });
-      this.isConfigured = true;
-      console.log(`[EmailService] ✅ Email service initialized with ${smtpEmail}`);
-    } catch (error: any) {
-      console.error('[EmailService] ❌ Failed to initialize email transporter:', error.message);
-      this.configError = error.message;
-    }
+    this.transporter = nodemailer.createTransport({
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      secure: smtpConfig.secure,
+      auth: {
+        user: smtpConfig.email,
+        pass: smtpConfig.password,
+      },
+    });
+    console.log(`[EmailService] ✅ Email service initialized with ${smtpConfig.email}`);
   }
 
   async sendEmail(to: string, subject: string, html: string, text?: string) {
-    // Check if email is configured
-    if (!this.isConfigured || !this.transporter) {
-      console.warn(`[EmailService] ⚠️ Email not sent (not configured): ${subject} → ${to}`);
-      console.warn(`[EmailService] 📋 Reason: ${this.configError || 'Transporter not initialized'}`);
-      // Return success: false instead of throwing - don't break the app for email issues
-      return {
-        success: false,
-        error: this.configError || 'Email service not configured',
-        recipient: to,
-        subject: subject,
-      };
-    }
-
-    const smtpEmail = process.env.SMTP_EMAIL;
-
     try {
       const info = await this.transporter.sendMail({
-        from: `"Abby - WebChatSales" <${smtpEmail}>`,
+        from: `"Abby - WebChatSales" <${this.fromEmail}>`,
         to,
         subject,
         text: text || subject,
@@ -89,22 +42,15 @@ export class EmailService {
         recipient: to,
       };
     } catch (error: any) {
-      // Handle specific Gmail errors with helpful messages
       const errorMessage = error.message || String(error);
-      
-      if (errorMessage.includes('535-5.7.8') || errorMessage.includes('BadCredentials')) {
-        console.error(`[EmailService] ❌ Gmail authentication failed for ${to}`);
-        console.error('[EmailService] 🔑 FIX: You need to use a Gmail App Password, not your regular password:');
-        console.error('[EmailService]    1. Go to https://myaccount.google.com/security');
-        console.error('[EmailService]    2. Enable 2-Step Verification');
-        console.error('[EmailService]    3. Go to https://myaccount.google.com/apppasswords');
-        console.error('[EmailService]    4. Create an App Password for "Mail"');
-        console.error('[EmailService]    5. Update SMTP_PASSWORD in your .env with the 16-character App Password');
+
+      if (errorMessage.includes('535') || errorMessage.includes('BadCredentials') || errorMessage.includes('Authentication Failed')) {
+        console.error(`[EmailService] ❌ SMTP authentication failed for ${to}`);
+        console.error('[EmailService] 🔑 Check hardcoded Zoho credentials in config.ts');
       } else {
         console.error(`[EmailService] ❌ Error sending email to ${to}:`, errorMessage);
       }
-      
-      // Return error instead of throwing - don't crash the app for email failures
+
       return {
         success: false,
         error: errorMessage,
@@ -655,6 +601,89 @@ export class EmailService {
       adminEmail,
       `New Support Ticket: ${ticketId} from ${userName}`,
       html
+    );
+  }
+
+  async sendIntakeConfirmation(email: string, name: string, businessName: string, isNewClient: boolean) {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #000; color: #22c55e; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>🎉 You're All Set!</h1>
+            </div>
+            <div class="content">
+              <h2>Hi ${name},</h2>
+              <p>Thank you for submitting your business information for <strong>${businessName}</strong>.</p>
+              <p>Abby is being configured for your business. Our team will review your details and be in touch soon with next steps.</p>
+              <p>In the meantime, if you have any questions, feel free to reply to this email.</p>
+              <p>Best regards,<br>The WebChatSales Team</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    return this.sendEmail(
+      email,
+      `Abby is being configured for ${businessName}`,
+      html,
+    );
+  }
+
+  async sendIntakeAdminNotification(adminEmail: string, payload: any, isNewClient: boolean) {
+    const services = (payload.servicesOffered || []).join(', ');
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #000; color: #22c55e; padding: 20px; text-align: center; }
+            .content { padding: 20px; background: #f9f9f9; }
+            .info-box { background: #fff; padding: 15px; margin: 10px 0; border-left: 4px solid #22c55e; }
+            .label { font-weight: bold; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>📋 New Intake Submission</h1>
+            </div>
+            <div class="content">
+              <p>${isNewClient ? 'A new client signed up via the intake form.' : 'An existing client updated their intake form.'}</p>
+              <div class="info-box">
+                <p><span class="label">Business:</span> ${payload.businessName}</p>
+                <p><span class="label">Owner:</span> ${payload.ownerName}</p>
+                <p><span class="label">Email:</span> ${payload.ownerEmail}</p>
+                ${payload.ownerPhone ? `<p><span class="label">Phone:</span> ${payload.ownerPhone}</p>` : ''}
+                ${payload.companyWebsite ? `<p><span class="label">Website:</span> ${payload.companyWebsite}</p>` : ''}
+                ${payload.industry ? `<p><span class="label">Industry:</span> ${payload.industry}</p>` : ''}
+                <p><span class="label">Services:</span> ${services}</p>
+                <p><span class="label">Hours:</span> ${payload.businessHours}</p>
+                <p><span class="label">Timezone:</span> ${payload.timezone}</p>
+              </div>
+              <p>Review and configure this client in the admin dashboard.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    return this.sendEmail(
+      adminEmail,
+      `${isNewClient ? 'New' : 'Updated'} Intake: ${payload.businessName}`,
+      html,
     );
   }
 }

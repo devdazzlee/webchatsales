@@ -48,6 +48,12 @@ export class TenantGuard implements CanActivate {
       );
     }
 
+    if (tenant.status === 'draft') {
+      throw new ForbiddenException(
+        'This chat widget is not active yet. The account is still being configured.',
+      );
+    }
+
     return true;
   }
 }

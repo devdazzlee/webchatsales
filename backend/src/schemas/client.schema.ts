@@ -94,6 +94,10 @@ export class Client {
   @Prop({ default: true })
   isActive: boolean;
 
+  // Deployment status: draft (hidden), test (verify), live (production)
+  @Prop({ default: 'draft', enum: ['draft', 'test', 'live'] })
+  status: string;
+
   @Prop({ default: 'trial' })
   plan: string; // trial, starter, pro, enterprise
 
@@ -191,6 +195,7 @@ ClientSchema.index({ secretKey: 1 });
 ClientSchema.index({ slug: 1 });
 ClientSchema.index({ ownerEmail: 1 });
 ClientSchema.index({ isActive: 1 });
+ClientSchema.index({ status: 1 });
 ClientSchema.index({ createdAt: -1 });
 
 /**

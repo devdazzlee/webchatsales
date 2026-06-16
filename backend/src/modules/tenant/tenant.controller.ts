@@ -34,8 +34,19 @@ export class TenantController {
       allowedDomains?: string[];
       plan?: string;
       notificationEmail?: string;
+      emailNotificationsEnabled?: boolean;
       schedulingLink?: string;
       isDemoMode?: boolean;
+      status?: 'draft' | 'test' | 'live';
+      businessHours?: string;
+      timezone?: string;
+      widgetConfig?: {
+        agentName?: string;
+        welcomeMessage?: string;
+        primaryColor?: string;
+        position?: string;
+        showBranding?: boolean;
+      };
       businessConfig?: {
         assistantName?: string;
         assistantRole?: string;
@@ -60,6 +71,7 @@ export class TenantController {
     @Query('limit') limit?: string,
     @Query('skip') skip?: string,
     @Query('isActive') isActive?: string,
+    @Query('status') status?: string,
   ) {
     this.assertSuperAdmin(req);
     const parsedIsActive =
@@ -69,6 +81,7 @@ export class TenantController {
       limit: limit ? parseInt(limit, 10) : 50,
       skip: skip ? parseInt(skip, 10) : 0,
       isActive: parsedIsActive,
+      status: status || undefined,
     });
 
     return {

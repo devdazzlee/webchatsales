@@ -46,15 +46,7 @@ export default function IntakePage() {
   const [form, setForm] = useState<IntakeFormState>(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState<null | {
-    clientId: string;
-    clientSlug: string;
-    intakeId: string;
-    widgetKey: string;
-    widgetLink: string;
-    widgetEmbedScript: string;
-    isNewClient: boolean;
-  }>(null);
+  const [success, setSuccess] = useState(false);
 
   const onFieldChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
@@ -80,7 +72,7 @@ export default function IntakePage() {
     e.preventDefault();
     setIsSubmitting(true);
     setError('');
-    setSuccess(null);
+    setSuccess(false);
 
     if (!form.servicesOffered.length) {
       setError('Please choose at least one service.');
@@ -109,15 +101,7 @@ export default function IntakePage() {
         throw new Error(result.message || result.error || 'Unable to submit intake form');
       }
 
-      setSuccess({
-        clientId: result.clientId,
-        clientSlug: result.clientSlug,
-        intakeId: result.intakeId,
-        widgetKey: result.widgetKey || '',
-        widgetLink: result.widgetLink || '',
-        widgetEmbedScript: result.widgetEmbedScript || '',
-        isNewClient: result.isNewClient,
-      });
+      setSuccess(true);
       setForm(initialForm);
     } catch (submitError: unknown) {
       const message =
@@ -138,43 +122,32 @@ export default function IntakePage() {
             Client Intake Form
           </h1>
           <p style={{ color: 'var(--muted)' }}>
-            Tell us about your business so we can self-onboard your account.
+            Tell us about your business and we&apos;ll get Abby set up for you.
           </p>
         </div>
 
-        {success && (
-          <div className="mb-5 p-3 rounded border text-sm" style={{ borderColor: 'var(--emerald)', color: 'var(--ink)' }}>
-            Intake saved and linked to client successfully. {success.isNewClient ? 'New client created.' : 'Existing client updated.'}
-            <div className="mt-1" style={{ color: 'var(--muted)' }}>
-              Client ID: {success.clientId} | Intake ID: {success.intakeId}
+        {success ? (
+          <div className="text-center py-8">
+            <div className="mb-6 p-6 rounded-lg border" style={{ borderColor: 'var(--emerald)', background: 'rgba(0, 255, 153, 0.04)' }}>
+              <div className="text-4xl mb-4">🎉</div>
+              <h2 className="text-2xl font-bold mb-3" style={{ color: 'var(--ink)' }}>
+                You&apos;re all set!
+              </h2>
+              <p className="text-base leading-relaxed" style={{ color: 'var(--muted)' }}>
+                Abby is being configured for your business. We&apos;ll review your details and be in touch soon with next steps.
+              </p>
+              <p className="text-sm mt-4" style={{ color: 'var(--muted)' }}>
+                A confirmation email has been sent to the address you provided.
+              </p>
             </div>
-            {success.widgetKey ? (
-              <>
-                <div className="mt-1" style={{ color: 'var(--muted)' }}>
-                  Widget key: {success.widgetKey}
-                </div>
-                <div className="mt-1">
-                  <a
-                    href={success.widgetLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ color: 'var(--emerald)', textDecoration: 'underline' }}
-                  >
-                    Open widget link
-                  </a>
-                </div>
-                <div className="mt-2 text-xs break-all" style={{ color: 'var(--muted)' }}>
-                  Embed snippet: {success.widgetEmbedScript}
-                </div>
-              </>
-            ) : (
-              <div className="mt-2 text-sm" style={{ color: '#f59e0b' }}>
-                Widget link is not ready yet. Restart backend and submit again.
-              </div>
-            )}
+            <Link
+              href="/"
+              className="inline-block px-6 py-3 text-black font-medium rounded bg-gradient-emerald"
+            >
+              Back to Home
+            </Link>
           </div>
-        )}
-
+        ) : (
         <form onSubmit={onSubmit} className="space-y-5">
           <input name="businessName" value={form.businessName} onChange={onFieldChange} placeholder="Business name" required className="w-full px-4 py-3 border rounded" style={{ borderColor: 'var(--line)', background: 'var(--bg)', color: 'var(--ink)' }} />
           <input name="ownerName" value={form.ownerName} onChange={onFieldChange} placeholder="Owner / admin name" required className="w-full px-4 py-3 border rounded" style={{ borderColor: 'var(--line)', background: 'var(--bg)', color: 'var(--ink)' }} />
@@ -231,6 +204,7 @@ export default function IntakePage() {
             {isSubmitting ? 'Saving intake...' : 'Submit Intake'}
           </button>
         </form>
+        )}
 
         <div className="mt-6 text-sm">
           <Link href="/" style={{ color: 'var(--muted)' }}>

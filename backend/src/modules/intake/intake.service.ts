@@ -13,6 +13,8 @@ import {
 } from '../../schemas/intake-submission.schema';
 import { CreateIntakeDto } from './dto/create-intake.dto';
 import { TenantService } from '../tenant/tenant.service';
+import { EmailService } from '../email/email.service';
+import { config } from '../../config/config';
 
 @Injectable()
 export class IntakeService {
@@ -21,6 +23,7 @@ export class IntakeService {
     @InjectModel(IntakeSubmission.name)
     private readonly intakeSubmissionModel: Model<IntakeSubmissionDocument>,
     private readonly tenantService: TenantService,
+    private readonly emailService: EmailService,
   ) {}
 
   async submitIntake(payload: CreateIntakeDto) {
@@ -116,6 +119,11 @@ export class IntakeService {
         widgetKey = rotated.widgetKey;
       }
 
+      // Send confirmation emails (non-blocking)
+      this.sendIntakeEmails(normalized, isNewClient).catch((err) =>
+        console.error('[IntakeService] Failed to send intake emails:', err),
+      );
+
       return {
         intakeId: submission._id.toString(),
         clientId: client._id.toString(),
@@ -175,6 +183,21 @@ export class IntakeService {
     const frontendBase =
       process.env.FRONTEND_URL?.replace(/\/$/, '') || 'http://localhost:3000';
     return `<script src="${frontendBase}/abby-widget.js" data-widget-key="${widgetKey}"><\/script>`;
+  }
+
+  private async sendIntakeEmails(payload: CreateIntakeDto, isNewClient: boolean) {
+    await this.emailService.sendIntakeConfirmation(
+      payload.ownerEmail,
+      payload.ownerName,
+      payload.businessName,
+      isNewClient,
+    );
+
+    await this.emailService.sendIntakeAdminNotification(
+      config.adminEmail,
+      payload,
+      isNewClient,
+    );
   }
 
   private handleIntakeError(error: any): never {

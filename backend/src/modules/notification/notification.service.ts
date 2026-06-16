@@ -28,10 +28,14 @@ export class NotificationService {
    * Get the notification email for a specific client.
    * Falls back to global config if tenant has no notification email.
    */
-  private async getNotificationEmail(clientId?: string): Promise<string> {
+  private async getNotificationEmail(clientId?: string): Promise<string | null> {
     if (clientId) {
       try {
         const client = await this.tenantService.findById(clientId);
+        if (client && client.emailNotificationsEnabled === false) {
+          console.log(`[NotificationService] Email notifications disabled for client ${clientId}`);
+          return null;
+        }
         if (client?.notificationEmail) {
           return client.notificationEmail;
         }
@@ -42,7 +46,7 @@ export class NotificationService {
         console.warn(`[NotificationService] Could not resolve tenant email for ${clientId}:`, err);
       }
     }
-    return config.notificationEmail;
+    return config.notificationEmail || null;
   }
 
   /**
