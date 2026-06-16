@@ -46,7 +46,7 @@ export default function IntakePage() {
   const [form, setForm] = useState<IntakeFormState>(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
+  const [success, setSuccess] = useState<{ emailSent: boolean } | null>(null);
 
   const onFieldChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
@@ -72,7 +72,7 @@ export default function IntakePage() {
     e.preventDefault();
     setIsSubmitting(true);
     setError('');
-    setSuccess(false);
+    setSuccess(null);
 
     if (!form.servicesOffered.length) {
       setError('Please choose at least one service.');
@@ -101,7 +101,7 @@ export default function IntakePage() {
         throw new Error(result.message || result.error || 'Unable to submit intake form');
       }
 
-      setSuccess(true);
+      setSuccess({ emailSent: result.emailSent === true });
       setForm(initialForm);
     } catch (submitError: unknown) {
       const message =
@@ -136,9 +136,15 @@ export default function IntakePage() {
               <p className="text-base leading-relaxed" style={{ color: 'var(--muted)' }}>
                 Abby is being configured for your business. We&apos;ll review your details and be in touch soon with next steps.
               </p>
-              <p className="text-sm mt-4" style={{ color: 'var(--muted)' }}>
-                A confirmation email has been sent to the address you provided.
-              </p>
+              {success.emailSent ? (
+                <p className="text-sm mt-4" style={{ color: 'var(--muted)' }}>
+                  A confirmation email has been sent to the address you provided.
+                </p>
+              ) : (
+                <p className="text-sm mt-4" style={{ color: 'var(--muted)' }}>
+                  Our team has your details and will reach out to you shortly.
+                </p>
+              )}
             </div>
             <Link
               href="/"

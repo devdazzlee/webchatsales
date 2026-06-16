@@ -119,10 +119,13 @@ export class IntakeService {
         widgetKey = rotated.widgetKey;
       }
 
-      // Send confirmation emails (non-blocking)
-      this.sendIntakeEmails(normalized, isNewClient).catch((err) =>
-        console.error('[IntakeService] Failed to send intake emails:', err),
-      );
+      // Send confirmation emails before responding (required on serverless — fire-and-forget gets killed)
+      let emailSent = false;
+      try {
+        emailSent = await this.sendIntakeEmails(normalized, isNewClient);
+      } catch (err) {
+        console.error('[IntakeService] Failed to send intake emails:', err);
+      }
 
       return {
         intakeId: submission._id.toString(),
@@ -132,6 +135,7 @@ export class IntakeService {
         widgetLink: this.buildWidgetLink(widgetKey),
         widgetEmbedScript: this.buildWidgetEmbedScript(widgetKey),
         isNewClient,
+        emailSent,
       };
     } catch (error: any) {
       this.handleIntakeError(error);
@@ -185,19 +189,35 @@ export class IntakeService {
     return `<script src="${frontendBase}/abby-widget.js" data-widget-key="${widgetKey}"><\/script>`;
   }
 
-  private async sendIntakeEmails(payload: CreateIntakeDto, isNewClient: boolean) {
-    await this.emailService.sendIntakeConfirmation(
+  private async sendIntakeEmails(payload: CreateIntakeDto, isNewClient: boolean): Promise<boolean> {
+    console.log(`[IntakeService] 📧 Sending intake emails to ${payload.ownerEmail} and ${config.adminEmail}`);
+
+    const ownerResult = await this.emailService.sendIntakeConfirmation(
       payload.ownerEmail,
       payload.ownerName,
       payload.businessName,
       isNewClient,
     );
 
-    await this.emailService.sendIntakeAdminNotification(
+    const adminResult = await this.emailService.sendIntakeAdminNotification(
       config.adminEmail,
       payload,
       isNewClient,
     );
+
+    if (!ownerResult.success) {
+      console.error(`[IntakeService] ❌ Owner confirmation failed for ${payload.ownerEmail}:`, ownerResult.error);
+    } else {
+      console.log(`[IntakeService] ✅ Owner confirmation sent to ${payload.ownerEmail}`);
+    }
+
+    if (!adminResult.success) {
+      console.error(`[IntakeService] ❌ Admin notification failed:`, adminResult.error);
+    } else {
+      console.log(`[IntakeService] ✅ Admin notification sent to ${config.adminEmail}`);
+    }
+
+    return ownerResult.success === true;
   }
 
   private handleIntakeError(error: any): never {

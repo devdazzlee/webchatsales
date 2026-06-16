@@ -15,12 +15,13 @@ export class EmailService {
       host: smtpConfig.host,
       port: smtpConfig.port,
       secure: smtpConfig.secure,
+      requireTLS: true,
       auth: {
         user: smtpConfig.email,
         pass: smtpConfig.password,
       },
     });
-    console.log(`[EmailService] ✅ Email service initialized with ${smtpConfig.email}`);
+    console.log(`[EmailService] ✅ Email service initialized with ${smtpConfig.email} via ${smtpConfig.host}:${smtpConfig.port}`);
   }
 
   async sendEmail(to: string, subject: string, html: string, text?: string) {
