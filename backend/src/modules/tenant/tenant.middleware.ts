@@ -1,16 +1,16 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
-import { TenantService } from './tenant.service';
-import { TENANT_KEY, TenantContext } from './tenant.decorator';
+import { Injectable, NestMiddleware } from "@nestjs/common";
+import { Request, Response, NextFunction } from "express";
+import { TenantService } from "./tenant.service";
+import { TENANT_KEY, TenantContext } from "./tenant.decorator";
 
 /**
  * TenantMiddleware — Resolves tenant context on every request
- * 
+ *
  * Resolution order:
  * 1. x-widget-key header (primary — used by embedded chat widget)
  * 2. x-client-id header (used by authenticated dashboard/admin requests)
  * 3. Origin/Referer header domain matching (fallback for widget)
- * 
+ *
  * If no tenant can be resolved, the request continues WITHOUT a tenant context.
  * Individual guards/controllers decide if tenant is required.
  */
@@ -22,7 +22,7 @@ export class TenantMiddleware implements NestMiddleware {
     let client = null;
 
     // Strategy 1: Widget key in header (x-widget-key)
-    const widgetKey = req.headers['x-widget-key'] as string;
+    const widgetKey = req.headers["x-widget-key"] as string;
     if (widgetKey) {
       client = await this.tenantService.findByWidgetKey(widgetKey);
       if (client) {
@@ -30,11 +30,13 @@ export class TenantMiddleware implements NestMiddleware {
         return next();
       }
       // Invalid widget key — don't fail, just continue without tenant
-      console.warn(`[TenantMiddleware] ⚠️ Invalid widget key: ${widgetKey.substring(0, 12)}...`);
+      console.warn(
+        `[TenantMiddleware] ⚠️ Invalid widget key: ${widgetKey.substring(0, 12)}...`,
+      );
     }
 
     // Strategy 2: Client ID in header (from authenticated JWT-based requests)
-    const clientIdHeader = req.headers['x-client-id'] as string;
+    const clientIdHeader = req.headers["x-client-id"] as string;
     if (clientIdHeader) {
       client = await this.tenantService.findById(clientIdHeader);
       if (client) {
@@ -78,28 +80,34 @@ export class TenantMiddleware implements NestMiddleware {
       name: client.name,
       slug: client.slug,
       isActive: client.isActive,
-      status: client.status || 'draft',
+      status: client.status || "live",
       plan: client.plan,
       isDemoMode: client.isDemoMode || false,
       notificationEmail: client.notificationEmail || client.ownerEmail,
       openaiApiKey: client.openaiApiKey,
-      openaiModel: client.openaiModel || 'gpt-4o-mini',
+      openaiModel: client.openaiModel || "gpt-4o-mini",
       schedulingLink: client.schedulingLink,
       widgetConfig: {
-        agentName: client.widgetConfig?.agentName || 'Abby',
-        welcomeMessage: client.widgetConfig?.welcomeMessage || 'Hi! How can I help you today?',
-        primaryColor: client.widgetConfig?.primaryColor || '#22c55e',
-        position: client.widgetConfig?.position || 'bottom-right',
+        agentName: client.widgetConfig?.agentName || "Abby",
+        welcomeMessage:
+          client.widgetConfig?.welcomeMessage ||
+          "Hi! How can I help you today?",
+        primaryColor: client.widgetConfig?.primaryColor || "#22c55e",
+        position: client.widgetConfig?.position || "bottom-right",
         showBranding: client.widgetConfig?.showBranding !== false,
         avatarUrl: client.widgetConfig?.avatarUrl,
         logoUrl: client.widgetConfig?.logoUrl,
       },
       businessConfig: {
-        assistantName: client.businessConfig?.assistantName || client.widgetConfig?.agentName || 'Abby',
-        assistantRole: client.businessConfig?.assistantRole || 'AI sales assistant',
-        brandVoice: client.businessConfig?.brandVoice || '',
-        valueProposition: client.businessConfig?.valueProposition || '',
-        qualificationGoal: client.businessConfig?.qualificationGoal || '',
+        assistantName:
+          client.businessConfig?.assistantName ||
+          client.widgetConfig?.agentName ||
+          "Abby",
+        assistantRole:
+          client.businessConfig?.assistantRole || "AI sales assistant",
+        brandVoice: client.businessConfig?.brandVoice || "",
+        valueProposition: client.businessConfig?.valueProposition || "",
+        qualificationGoal: client.businessConfig?.qualificationGoal || "",
         responseRules: client.businessConfig?.responseRules || [],
       },
     };

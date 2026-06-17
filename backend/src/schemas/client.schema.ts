@@ -1,6 +1,6 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema as MongooseSchema } from 'mongoose';
-import * as crypto from 'crypto';
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
+import { Document, Schema as MongooseSchema } from "mongoose";
+import * as crypto from "crypto";
 
 export type ClientDocument = Client & Document;
 
@@ -10,16 +10,16 @@ export type ClientDocument = Client & Document;
  */
 @Schema({ _id: false })
 export class WidgetConfig {
-  @Prop({ default: 'Abby' })
+  @Prop({ default: "Abby" })
   agentName: string;
 
-  @Prop({ default: 'Hi! How can I help you today?' })
+  @Prop({ default: "Hi! How can I help you today?" })
   welcomeMessage: string;
 
-  @Prop({ default: '#22c55e' })
+  @Prop({ default: "#22c55e" })
   primaryColor: string;
 
-  @Prop({ default: 'bottom-right' })
+  @Prop({ default: "bottom-right" })
   position: string; // bottom-right, bottom-left
 
   @Prop({ default: true })
@@ -40,34 +40,35 @@ export const WidgetConfigSchema = SchemaFactory.createForClass(WidgetConfig);
  */
 @Schema({ _id: false })
 export class BusinessConfig {
-  @Prop({ default: 'Abby' })
+  @Prop({ default: "Abby" })
   assistantName: string;
 
-  @Prop({ default: 'AI sales assistant' })
+  @Prop({ default: "AI sales assistant" })
   assistantRole: string;
 
-  @Prop({ default: '' })
+  @Prop({ default: "" })
   brandVoice: string;
 
-  @Prop({ default: '' })
+  @Prop({ default: "" })
   valueProposition: string;
 
-  @Prop({ default: '' })
+  @Prop({ default: "" })
   qualificationGoal: string;
 
   @Prop({ type: [String], default: [] })
   responseRules: string[];
 }
 
-export const BusinessConfigSchema = SchemaFactory.createForClass(BusinessConfig);
+export const BusinessConfigSchema =
+  SchemaFactory.createForClass(BusinessConfig);
 
 /**
  * Client Schema — The tenant model
- * 
+ *
  * Each client represents one customer who has installed WebChatSales.
  * All data (conversations, leads, bookings, tickets, payments) is scoped to a client
  * via clientId. This is the foundational isolation model.
- * 
+ *
  * Identification strategy:
  * 1. Widget Key (primary) — Unique API key embedded in the chat widget script tag.
  *    Used by public-facing endpoints (chat, booking availability).
@@ -95,10 +96,10 @@ export class Client {
   isActive: boolean;
 
   // Deployment status: draft (hidden), test (verify), live (production)
-  @Prop({ default: 'draft', enum: ['draft', 'test', 'live'] })
+  @Prop({ default: "draft", enum: ["draft", "test", "live"] })
   status: string;
 
-  @Prop({ default: 'trial' })
+  @Prop({ default: "trial" })
   plan: string; // trial, starter, pro, enterprise
 
   @Prop()
@@ -131,7 +132,7 @@ export class Client {
   @Prop()
   openaiApiKey: string; // Client can bring their own key (optional)
 
-  @Prop({ default: 'gpt-4o-mini' })
+  @Prop({ default: "gpt-4o-mini" })
   openaiModel: string;
 
   // SMTP settings — per-tenant overrides (optional)
@@ -157,7 +158,7 @@ export class Client {
   @Prop()
   squareLocationId: string;
 
-  @Prop({ default: 'sandbox' })
+  @Prop({ default: "sandbox" })
   squareEnvironment: string;
 
   // Scheduling / booking config
@@ -201,18 +202,18 @@ ClientSchema.index({ createdAt: -1 });
 /**
  * Pre-save hook: auto-generate widget key and secret key if not set
  */
-ClientSchema.pre('save', function (next) {
+ClientSchema.pre("save", function (next) {
   if (!this.widgetKey) {
-    this.widgetKey = `wcs_${crypto.randomBytes(24).toString('hex')}`;
+    this.widgetKey = `wcs_${crypto.randomBytes(24).toString("hex")}`;
   }
   if (!this.secretKey) {
-    this.secretKey = `wcs_sk_${crypto.randomBytes(32).toString('hex')}`;
+    this.secretKey = `wcs_sk_${crypto.randomBytes(32).toString("hex")}`;
   }
   if (!this.slug && this.name) {
     this.slug = this.name
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
   }
   next();
 });

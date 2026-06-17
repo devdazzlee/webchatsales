@@ -1,12 +1,16 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import * as crypto from 'crypto';
-import { Client, ClientDocument } from '../../schemas/client.schema';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model, Types } from "mongoose";
+import * as crypto from "crypto";
+import { Client, ClientDocument } from "../../schemas/client.schema";
 
 /**
  * TenantService — Core multi-tenant operations
- * 
+ *
  * Responsible for:
  * - Client CRUD
  * - API key generation & rotation
@@ -34,7 +38,7 @@ export class TenantService {
     notificationEmail?: string;
     schedulingLink?: string;
     isDemoMode?: boolean;
-    status?: 'draft' | 'test' | 'live';
+    status?: "draft" | "test" | "live";
     businessConfig?: {
       assistantName?: string;
       assistantRole?: string;
@@ -44,29 +48,41 @@ export class TenantService {
       responseRules?: string[];
     };
   }): Promise<ClientDocument> {
-    const normalizedAllowedDomains = this.normalizeAllowedDomains(data.allowedDomains);
+    const normalizedAllowedDomains = this.normalizeAllowedDomains(
+      data.allowedDomains,
+    );
 
     // Check for duplicate name or email
-    const existingByName = await this.clientModel.findOne({ name: data.name }).exec();
+    const existingByName = await this.clientModel
+      .findOne({ name: data.name })
+      .exec();
     if (existingByName) {
-      throw new ConflictException(`Client with name "${data.name}" already exists`);
+      throw new ConflictException(
+        `Client with name "${data.name}" already exists`,
+      );
     }
 
-    const existingByEmail = await this.clientModel.findOne({ ownerEmail: data.ownerEmail }).exec();
+    const existingByEmail = await this.clientModel
+      .findOne({ ownerEmail: data.ownerEmail })
+      .exec();
     if (existingByEmail) {
-      throw new ConflictException(`Client with email "${data.ownerEmail}" already exists`);
+      throw new ConflictException(
+        `Client with email "${data.ownerEmail}" already exists`,
+      );
     }
 
     // Generate slug from name
     const slug = data.name
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
 
     // Check slug uniqueness
     const existingBySlug = await this.clientModel.findOne({ slug }).exec();
     if (existingBySlug) {
-      throw new ConflictException(`Client slug "${slug}" already exists. Choose a different name.`);
+      throw new ConflictException(
+        `Client slug "${slug}" already exists. Choose a different name.`,
+      );
     }
 
     const client = new this.clientModel({
@@ -76,18 +92,22 @@ export class TenantService {
       widgetKey: this.generateWidgetKey(),
       secretKey: this.generateSecretKey(),
       notificationEmail: data.notificationEmail || data.ownerEmail,
-      status: data.status || 'draft',
+      status: data.status || "draft",
     });
 
     const saved = await client.save();
-    console.log(`[TenantService] ✅ Client created: ${saved.name} (${saved._id}), widgetKey: ${saved.widgetKey.substring(0, 12)}...`);
+    console.log(
+      `[TenantService] ✅ Client created: ${saved.name} (${saved._id}), widgetKey: ${saved.widgetKey.substring(0, 12)}...`,
+    );
     return saved;
   }
 
   /**
    * Find a client by its MongoDB _id
    */
-  async findById(clientId: string | Types.ObjectId): Promise<ClientDocument | null> {
+  async findById(
+    clientId: string | Types.ObjectId,
+  ): Promise<ClientDocument | null> {
     return this.clientModel.findById(clientId).exec();
   }
 
@@ -95,7 +115,9 @@ export class TenantService {
    * Find a client by widget key (used by public widget endpoints)
    */
   async findByWidgetKey(widgetKey: string): Promise<ClientDocument | null> {
-    const client = await this.clientModel.findOne({ widgetKey, isActive: true }).exec();
+    const client = await this.clientModel
+      .findOne({ widgetKey, isActive: true })
+      .exec();
     if (!client || this.isDraftStatus(client.status)) {
       return null;
     }
@@ -163,7 +185,7 @@ export class TenantService {
     const [clients, total] = await Promise.all([
       this.clientModel
         .find(query)
-        .select('-secretKey -openaiApiKey -smtpPassword -squareAccessToken') // Never expose secrets in list
+        .select("-secretKey -openaiApiKey -smtpPassword -squareAccessToken") // Never expose secrets in list
         .sort({ createdAt: -1 })
         .limit(options?.limit || 50)
         .skip(options?.skip || 0)
@@ -188,7 +210,9 @@ export class TenantService {
     delete (updateData as any).slug;
 
     if (updateData.allowedDomains) {
-      updateData.allowedDomains = this.normalizeAllowedDomains(updateData.allowedDomains);
+      updateData.allowedDomains = this.normalizeAllowedDomains(
+        updateData.allowedDomains,
+      );
     }
 
     const client = await this.clientModel
@@ -199,14 +223,18 @@ export class TenantService {
       throw new NotFoundException(`Client ${clientId} not found`);
     }
 
-    console.log(`[TenantService] ✅ Client updated: ${client.name} (${client._id})`);
+    console.log(
+      `[TenantService] ✅ Client updated: ${client.name} (${client._id})`,
+    );
     return client;
   }
 
   /**
    * Deactivate a client (soft delete)
    */
-  async deactivateClient(clientId: string | Types.ObjectId): Promise<ClientDocument> {
+  async deactivateClient(
+    clientId: string | Types.ObjectId,
+  ): Promise<ClientDocument> {
     const client = await this.clientModel
       .findByIdAndUpdate(clientId, { isActive: false }, { new: true })
       .exec();
@@ -215,14 +243,18 @@ export class TenantService {
       throw new NotFoundException(`Client ${clientId} not found`);
     }
 
-    console.log(`[TenantService] ⚠️ Client deactivated: ${client.name} (${client._id})`);
+    console.log(
+      `[TenantService] ⚠️ Client deactivated: ${client.name} (${client._id})`,
+    );
     return client;
   }
 
   /**
    * Reactivate a client
    */
-  async reactivateClient(clientId: string | Types.ObjectId): Promise<ClientDocument> {
+  async reactivateClient(
+    clientId: string | Types.ObjectId,
+  ): Promise<ClientDocument> {
     const client = await this.clientModel
       .findByIdAndUpdate(clientId, { isActive: true }, { new: true })
       .exec();
@@ -231,14 +263,18 @@ export class TenantService {
       throw new NotFoundException(`Client ${clientId} not found`);
     }
 
-    console.log(`[TenantService] ✅ Client reactivated: ${client.name} (${client._id})`);
+    console.log(
+      `[TenantService] ✅ Client reactivated: ${client.name} (${client._id})`,
+    );
     return client;
   }
 
   /**
    * Rotate widget key (generates new public API key)
    */
-  async rotateWidgetKey(clientId: string | Types.ObjectId): Promise<{ widgetKey: string }> {
+  async rotateWidgetKey(
+    clientId: string | Types.ObjectId,
+  ): Promise<{ widgetKey: string }> {
     const newKey = this.generateWidgetKey();
     const client = await this.clientModel
       .findByIdAndUpdate(clientId, { widgetKey: newKey }, { new: true })
@@ -255,7 +291,9 @@ export class TenantService {
   /**
    * Rotate secret key (generates new server-to-server key)
    */
-  async rotateSecretKey(clientId: string | Types.ObjectId): Promise<{ secretKey: string }> {
+  async rotateSecretKey(
+    clientId: string | Types.ObjectId,
+  ): Promise<{ secretKey: string }> {
     const newKey = this.generateSecretKey();
     const client = await this.clientModel
       .findByIdAndUpdate(clientId, { secretKey: newKey }, { new: true })
@@ -272,7 +310,10 @@ export class TenantService {
   /**
    * Validate that a domain is allowed for a client
    */
-  async validateDomain(clientId: string | Types.ObjectId, domain: string): Promise<boolean> {
+  async validateDomain(
+    clientId: string | Types.ObjectId,
+    domain: string,
+  ): Promise<boolean> {
     const client = await this.findById(clientId);
     if (!client) return false;
 
@@ -284,7 +325,7 @@ export class TenantService {
     const normalized = this.normalizeDomain(domain);
     if (!normalized) return false;
 
-    return client.allowedDomains.some(d => {
+    return client.allowedDomains.some((d) => {
       const normalizedAllowed = this.normalizeDomain(d);
       return normalizedAllowed === normalized;
     });
@@ -293,15 +334,15 @@ export class TenantService {
   // --- Private helpers ---
 
   private isDraftStatus(status?: string): boolean {
-    return status === 'draft';
+    return status === "draft";
   }
 
   private generateWidgetKey(): string {
-    return `wcs_${crypto.randomBytes(24).toString('hex')}`;
+    return `wcs_${crypto.randomBytes(24).toString("hex")}`;
   }
 
   private generateSecretKey(): string {
-    return `wcs_sk_${crypto.randomBytes(32).toString('hex')}`;
+    return `wcs_sk_${crypto.randomBytes(32).toString("hex")}`;
   }
 
   /**
@@ -317,18 +358,20 @@ export class TenantService {
     if (!trimmed) return null;
 
     try {
-      const withScheme = /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`;
+      const withScheme = /^https?:\/\//.test(trimmed)
+        ? trimmed
+        : `http://${trimmed}`;
       const url = new URL(withScheme);
-      const hostname = url.hostname.replace(/^www\./, '');
+      const hostname = url.hostname.replace(/^www\./, "");
       return hostname;
     } catch {
       const fallback = trimmed
-        .replace(/^https?:\/\//, '')
-        .replace(/\/.*$/, '')
-        .replace(/:\d+$/, '')
+        .replace(/^https?:\/\//, "")
+        .replace(/\/.*$/, "")
+        .replace(/:\d+$/, "")
         .trim()
         .toLowerCase();
-      return fallback.replace(/^www\./, '') || null;
+      return fallback.replace(/^www\./, "") || null;
     }
   }
 

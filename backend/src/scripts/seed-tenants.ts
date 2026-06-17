@@ -34,6 +34,7 @@ async function bootstrap() {
         notificationEmail,
         allowedDomains: requiredDomains,
         plan: 'trial',
+        status: 'live',
       });
 
       console.log('[seed:tenants] Created tenant:', {
@@ -51,10 +52,12 @@ async function bootstrap() {
     );
 
     const updated = await tenantService.updateClient(existing._id, {
+      name,
       ownerEmail,
       allowedDomains: mergedDomains,
       notificationEmail,
       isActive: true,
+      status: 'live',
     });
 
     console.log('[seed:tenants] Updated existing tenant:', {

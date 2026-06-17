@@ -14,13 +14,19 @@ export class ChatController {
     @ClientId() clientId: string,
     @Body() body: { sessionId?: string; userEmail?: string; userName?: string },
   ) {
-    const sessionId = body.sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const sessionId = body?.sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const conversation = await this.chatService.createConversation(
       clientId,
       sessionId,
-      body.userEmail,
-      body.userName,
+      body?.userEmail,
+      body?.userName,
     );
+    if (!conversation) {
+      return {
+        success: false,
+        error: 'Failed to create conversation',
+      };
+    }
     return {
       success: true,
       sessionId: conversation.sessionId,

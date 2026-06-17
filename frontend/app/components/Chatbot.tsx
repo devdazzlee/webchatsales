@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { MessageCircle } from 'lucide-react';
 import Image from 'next/image';
 import { useChatbot } from './ChatbotContext';
+import { DEFAULT_WIDGET_KEY } from '../config/site';
 
 interface Message {
   id: string;
@@ -22,7 +23,11 @@ const getTenantHeaders = (): Record<string, string> => {
   }
 
   const params = new URLSearchParams(window.location.search);
-  const widgetKey = params.get('widgetKey') || params.get('wcs_widget_key');
+  const widgetKey =
+    params.get('widgetKey') ||
+    params.get('wcs_widget_key') ||
+    process.env.NEXT_PUBLIC_DEFAULT_WIDGET_KEY ||
+    DEFAULT_WIDGET_KEY;
   const clientId = params.get('clientId') || params.get('wcs_client_id');
 
   const headers: Record<string, string> = {};
@@ -127,7 +132,10 @@ export default function Chatbot() {
       });
 
       const data = await response.json();
-      if (data.success) {
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || 'Failed to start chat session');
+      }
+      if (data.success && data.sessionId) {
         setSessionId(data.sessionId);
         // Auto-send greeting message
         // CLIENT REQUIREMENT: Conversational intro that builds trust
