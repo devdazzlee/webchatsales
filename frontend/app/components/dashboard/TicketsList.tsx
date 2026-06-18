@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 
 import { getAuthHeaders, handleAuthError } from '../../utils/auth';
+import DashboardTable from './DashboardTable';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
@@ -47,14 +48,14 @@ export default function TicketsList() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold" style={{ color: 'var(--ink)' }}>Support Tickets</h2>
-        <div className="flex gap-2">
+    <div className="space-y-4 min-w-0">
+      <div className="dashboard-section-header">
+        <h2 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--ink)' }}>Support Tickets</h2>
+        <div className="dashboard-toolbar">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 text-sm rounded border"
+            className="px-3 py-2 text-sm rounded border w-full sm:w-auto"
             style={{ background: 'var(--bg)', borderColor: 'var(--line)', color: 'var(--ink)' }}
           >
             <option value="">All Statuses</option>
@@ -63,12 +64,11 @@ export default function TicketsList() {
             <option value="resolved">Resolved</option>
             <option value="closed">Closed</option>
           </select>
-          <p className="text-sm flex items-center" style={{ color: 'var(--muted)' }}>Total: {total}</p>
+          <p className="text-sm flex items-center shrink-0" style={{ color: 'var(--muted)' }}>Total: {total}</p>
         </div>
       </div>
 
-      <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
-        <table className="w-full">
+      <DashboardTable minWidth="860px">
           <thead style={{ background: 'var(--bg)' }}>
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
@@ -171,11 +171,10 @@ export default function TicketsList() {
               ))
             )}
           </tbody>
-        </table>
-      </div>
+      </DashboardTable>
 
       {/* Pagination */}
-      <div className="flex justify-between items-center">
+      <div className="dashboard-pagination">
         <button
           onClick={() => setPage(p => Math.max(1, p - 1))}
           disabled={page === 1}
@@ -221,7 +220,7 @@ export default function TicketsList() {
               {/* User Information */}
               <div>
                 <h4 className="text-lg font-semibold mb-3" style={{ color: 'var(--ink)' }}>User Information</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm font-medium mb-1" style={{ color: 'var(--muted)' }}>Name</p>
                     <p style={{ color: 'var(--ink)' }}>{selectedTicket.userName || 'Unknown'}</p>
@@ -242,7 +241,7 @@ export default function TicketsList() {
               {/* Ticket Information */}
               <div>
                 <h4 className="text-lg font-semibold mb-3" style={{ color: 'var(--ink)' }}>Ticket Information</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm font-medium mb-1" style={{ color: 'var(--muted)' }}>Status</p>
                     <span

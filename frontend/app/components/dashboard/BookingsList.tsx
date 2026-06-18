@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 
 import { getAuthHeaders, handleAuthError } from '../../utils/auth';
+import DashboardTable from './DashboardTable';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
@@ -86,7 +87,7 @@ export default function BookingsList() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0">
       {/* Booking Detail Modal */}
       {selectedBooking && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -106,7 +107,7 @@ export default function BookingsList() {
               </div>
             </div>
             <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>User Name</label>
                   <p className="mt-1 text-sm font-medium" style={{ color: 'var(--ink)' }}>{selectedBooking.userName || 'N/A'}</p>
@@ -193,12 +194,12 @@ export default function BookingsList() {
         </div>
       )}
 
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold" style={{ color: 'var(--ink)' }}>All Bookings</h2>
-        <div className="flex gap-2 items-center">
+      <div className="dashboard-section-header">
+        <h2 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--ink)' }}>All Bookings</h2>
+        <div className="dashboard-toolbar">
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className="px-3 py-2 text-sm rounded border transition-colors"
+            className="px-3 py-2 text-sm rounded border transition-colors w-full sm:w-auto"
             style={{ 
               background: showFilters ? 'var(--emerald)' : 'var(--bg)', 
               borderColor: 'var(--line)', 
@@ -207,7 +208,7 @@ export default function BookingsList() {
           >
             {showFilters ? 'Hide Filters' : 'Show Filters'}
           </button>
-          <p className="text-sm flex items-center" style={{ color: 'var(--muted)' }}>Total: {total}</p>
+          <p className="text-sm flex items-center shrink-0" style={{ color: 'var(--muted)' }}>Total: {total}</p>
         </div>
       </div>
 
@@ -298,8 +299,7 @@ export default function BookingsList() {
         </div>
       )}
 
-      <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
-        <table className="w-full">
+      <DashboardTable minWidth="780px">
           <thead style={{ background: 'var(--bg)' }}>
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
@@ -379,11 +379,10 @@ export default function BookingsList() {
               ))
             )}
           </tbody>
-        </table>
-      </div>
+      </DashboardTable>
 
       {/* Pagination */}
-      <div className="flex justify-between items-center">
+      <div className="dashboard-pagination">
         <button
           onClick={() => setPage(p => Math.max(1, p - 1))}
           disabled={page === 1}

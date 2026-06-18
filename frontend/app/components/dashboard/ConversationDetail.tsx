@@ -71,8 +71,8 @@ export default function ConversationDetail({ sessionId, onBack }: ConversationDe
   const { conversation, lead, ticket, booking, payment } = details;
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="min-h-screen dashboard-page" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 min-w-0">
         <button
           onClick={onBack}
           className="mb-6 px-4 py-2 text-sm rounded transition-colors"
@@ -84,8 +84,8 @@ export default function ConversationDetail({ sessionId, onBack }: ConversationDe
         <div className="space-y-6">
           {/* Header */}
           <div className="border rounded-lg p-6" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
-            <h1 className="text-2xl font-bold mb-4" style={{ color: 'var(--ink)' }}>Conversation Details</h1>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <h1 className="text-xl sm:text-2xl font-bold mb-4" style={{ color: 'var(--ink)' }}>Conversation Details</h1>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <p className="text-sm" style={{ color: 'var(--muted)' }}>Session ID</p>
                 <p className="text-sm font-mono" style={{ color: 'var(--ink)' }}>{conversation.sessionId}</p>

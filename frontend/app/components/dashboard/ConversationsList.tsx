@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 
 import { getAuthHeaders, handleAuthError } from '../../utils/auth';
+import DashboardTable from './DashboardTable';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
@@ -48,14 +49,13 @@ export default function ConversationsList({ onViewConversation }: ConversationsL
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold" style={{ color: 'var(--ink)' }}>All Conversations</h2>
+    <div className="space-y-4 min-w-0">
+      <div className="dashboard-section-header">
+        <h2 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--ink)' }}>All Conversations</h2>
         <p className="text-sm" style={{ color: 'var(--muted)' }}>Total: {total}</p>
       </div>
 
-      <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
-        <table className="w-full">
+      <DashboardTable minWidth="720px">
           <thead style={{ background: 'var(--bg)' }}>
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
@@ -116,11 +116,10 @@ export default function ConversationsList({ onViewConversation }: ConversationsL
               </tr>
             ))}
           </tbody>
-        </table>
-      </div>
+      </DashboardTable>
 
       {/* Pagination */}
-      <div className="flex justify-between items-center">
+      <div className="dashboard-pagination">
         <button
           onClick={() => setPage(p => Math.max(1, p - 1))}
           disabled={page === 1}

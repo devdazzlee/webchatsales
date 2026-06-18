@@ -50,7 +50,7 @@ export default function DashboardStats({ onViewConversation }: DashboardStatsPro
   const COLORS = ['#22c55e', '#16a34a', '#15803d', '#166534'];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8 min-w-0">
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <MetricCard
@@ -88,7 +88,7 @@ export default function DashboardStats({ onViewConversation }: DashboardStatsPro
       {/* Charts Row 1 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Conversations Over Time */}
-        <div className="border rounded-lg p-6" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+        <div className="border rounded-lg p-4 sm:p-6 min-w-0 overflow-hidden" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
           <h3 className="text-lg font-semibold mb-4" style={{ color: 'var(--ink)' }}>Conversations Over Time</h3>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={stats.trends.conversationsOverTime}>
@@ -102,7 +102,7 @@ export default function DashboardStats({ onViewConversation }: DashboardStatsPro
         </div>
 
         {/* Leads by Status */}
-        <div className="border rounded-lg p-6" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+        <div className="border rounded-lg p-4 sm:p-6 min-w-0 overflow-hidden" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
           <h3 className="text-lg font-semibold mb-4" style={{ color: 'var(--ink)' }}>Leads by Status</h3>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
@@ -129,7 +129,7 @@ export default function DashboardStats({ onViewConversation }: DashboardStatsPro
       {/* Charts Row 2 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Tickets by Priority */}
-        <div className="border rounded-lg p-6" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+        <div className="border rounded-lg p-4 sm:p-6 min-w-0 overflow-hidden" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
           <h3 className="text-lg font-semibold mb-4" style={{ color: 'var(--ink)' }}>Tickets by Priority</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={stats.breakdowns.ticketsByPriority}>
@@ -143,7 +143,7 @@ export default function DashboardStats({ onViewConversation }: DashboardStatsPro
         </div>
 
         {/* Payments by Status */}
-        <div className="border rounded-lg p-6" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+        <div className="border rounded-lg p-4 sm:p-6 min-w-0 overflow-hidden" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
           <h3 className="text-lg font-semibold mb-4" style={{ color: 'var(--ink)' }}>Payments by Status</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={stats.breakdowns.paymentsByStatus}>
@@ -160,7 +160,7 @@ export default function DashboardStats({ onViewConversation }: DashboardStatsPro
       {/* Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Conversations */}
-        <div className="border rounded-lg p-6" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+        <div className="border rounded-lg p-4 sm:p-6 min-w-0 overflow-hidden" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
           <h3 className="text-lg font-semibold mb-4" style={{ color: 'var(--ink)' }}>Recent Conversations</h3>
           <div className="space-y-3">
             {stats.recent.conversations.slice(0, 5).map((conv: any) => (
@@ -187,7 +187,7 @@ export default function DashboardStats({ onViewConversation }: DashboardStatsPro
         </div>
 
         {/* Recent Leads */}
-        <div className="border rounded-lg p-6" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+        <div className="border rounded-lg p-4 sm:p-6 min-w-0 overflow-hidden" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
           <h3 className="text-lg font-semibold mb-4" style={{ color: 'var(--ink)' }}>Recent Leads</h3>
           <div className="space-y-3">
             {stats.recent.leads.slice(0, 5).map((lead: any) => (

@@ -65,6 +65,7 @@ export interface TenantContext {
   slug: string;           // URL-safe identifier
   isActive: boolean;      // Whether the client account is active
   status: string;           // draft, test, or live
+  isPlatformTenant: boolean; // true = webchatsales.com marketing site
   plan: string;           // Client's plan
   isDemoMode: boolean;    // Whether in demo mode
   

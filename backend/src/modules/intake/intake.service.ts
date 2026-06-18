@@ -32,23 +32,18 @@ export class IntakeService {
       const allowedDomains = this.extractAllowedDomains(normalized.companyWebsite);
       const serviceSummary = normalized.servicesOffered.join(', ');
 
+      // Match by business name — each unique business gets its own client row.
+      // (Same owner email can own multiple businesses; re-submitting the same name updates that client.)
       let client = await this.clientModel
-        .findOne({ ownerEmail: normalized.ownerEmail.toLowerCase() })
+        .findOne({
+          name: normalized.businessName,
+          isPlatformTenant: { $ne: true },
+        })
         .exec();
 
       let isNewClient = false;
 
       if (!client) {
-        const clientWithBusinessName = await this.clientModel
-          .findOne({ name: normalized.businessName })
-          .exec();
-
-        if (clientWithBusinessName) {
-          throw new ConflictException(
-            'Business name already exists. Use a different business name or contact support.',
-          );
-        }
-
         const createdClient = await this.tenantService.createClient({
           name: normalized.businessName,
           ownerEmail: normalized.ownerEmail,

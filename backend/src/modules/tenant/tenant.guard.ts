@@ -48,6 +48,11 @@ export class TenantGuard implements CanActivate {
       );
     }
 
+    // Platform tenant (webchatsales.com) is always allowed — client draft rules don't apply
+    if (tenant.isPlatformTenant) {
+      return true;
+    }
+
     if (tenant.status === 'draft') {
       throw new ForbiddenException(
         'This chat widget is not active yet. The account is still being configured.',

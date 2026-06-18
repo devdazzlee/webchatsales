@@ -67,17 +67,17 @@ export default function IntakeSubmissionsList() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold" style={{ color: 'var(--ink)' }}>Intake Submissions</h2>
-        <p className="text-sm" style={{ color: 'var(--muted)' }}>Total: {total}</p>
+    <div className="space-y-4 min-w-0">
+      <div className="dashboard-section-header">
+        <h2 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--ink)' }}>Intake Submissions</h2>
+        <p className="text-sm shrink-0" style={{ color: 'var(--muted)' }}>Total: {total}</p>
       </div>
 
       <div className="space-y-3">
         {rows.map((submission) => (
           <div
             key={submission._id}
-            className="border rounded-lg p-4"
+            className="border rounded-lg p-3 sm:p-4 min-w-0 overflow-hidden"
             style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}
           >
             <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -91,7 +91,7 @@ export default function IntakeSubmissionsList() {
               </span>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-2 mt-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 text-sm">
               <p style={{ color: 'var(--muted)' }}>Owner: <span style={{ color: 'var(--ink)' }}>{submission.ownerName}</span></p>
               <p style={{ color: 'var(--muted)' }}>Email: <span style={{ color: 'var(--ink)' }}>{submission.ownerEmail}</span></p>
               <p style={{ color: 'var(--muted)' }}>Phone: <span style={{ color: 'var(--ink)' }}>{submission.ownerPhone || 'N/A'}</span></p>

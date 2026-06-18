@@ -45,11 +45,13 @@ type Client = {
   timezone?: string;
   allowedDomains?: string[];
   status?: ClientStatus;
+  isPlatformTenant?: boolean;
   isActive?: boolean;
   plan?: string;
   widgetConfig?: WidgetConfig;
   businessConfig?: BusinessConfig;
   createdAt?: string;
+  updatedAt?: string;
 };
 
 const emptyForm = {
@@ -325,7 +327,16 @@ export default function ClientsPanel() {
     setSuccess(`${label} copied to clipboard.`);
   };
 
-  const filteredClients = clients.filter((c) => {
+  const filteredClients = [...clients]
+    .sort((a, b) => {
+      if (a.isPlatformTenant !== b.isPlatformTenant) {
+        return Number(b.isPlatformTenant) - Number(a.isPlatformTenant);
+      }
+      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return bTime - aTime;
+    })
+    .filter((c) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -341,6 +352,7 @@ export default function ClientsPanel() {
   const labelStyle = { color: 'var(--muted)' };
 
   if (mode === 'create' || mode === 'edit') {
+    const isPlatform = selectedClient?.isPlatformTenant === true;
     const widgetLink = selectedClient
       ? `${FRONTEND_URL}/widget?widgetKey=${encodeURIComponent(selectedClient.widgetKey)}`
       : '';
@@ -356,10 +368,19 @@ export default function ClientsPanel() {
               ← Back to clients
             </button>
             <h2 className="text-2xl font-bold" style={{ color: 'var(--ink)' }}>
-              {mode === 'create' ? 'Add New Client' : `Edit: ${selectedClient?.name}`}
+              {mode === 'create'
+                ? 'Add New Client'
+                : isPlatform
+                  ? 'WebChatSales Platform Site'
+                  : `Edit: ${selectedClient?.name}`}
             </h2>
+            {isPlatform && (
+              <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+                Powers Abby on webchatsales.com — always live, not subject to Draft/Test/Live.
+              </p>
+            )}
           </div>
-          {mode === 'edit' && selectedClient && (
+          {mode === 'edit' && selectedClient && !isPlatform && (
             <div className="flex gap-2">
               <button
                 onClick={handleToggleActive}
@@ -384,7 +405,16 @@ export default function ClientsPanel() {
         )}
 
         <form onSubmit={handleSave} className="space-y-6">
-          {/* Status */}
+          {/* Status — hidden for platform tenant */}
+          {isPlatform ? (
+            <section className="border rounded-lg p-4" style={{ borderColor: 'var(--emerald)', background: 'rgba(0, 255, 153, 0.04)' }}>
+              <h3 className="font-semibold mb-2" style={{ color: 'var(--ink)' }}>Platform Site</h3>
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>
+                Always <strong style={{ color: 'var(--emerald)' }}>Live</strong> on webchatsales.com and localhost.
+                Contractor Draft/Test/Live rules do not apply here.
+              </p>
+            </section>
+          ) : (
           <section className="border rounded-lg p-4" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
             <h3 className="font-semibold mb-3" style={{ color: 'var(--ink)' }}>Deployment Status</h3>
             <div className="grid sm:grid-cols-3 gap-3">
@@ -413,6 +443,7 @@ export default function ClientsPanel() {
               ))}
             </div>
           </section>
+          )}
 
           {/* Business Info */}
           <section className="border rounded-lg p-4" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
@@ -540,8 +571,8 @@ export default function ClientsPanel() {
             </div>
           </section>
 
-          {/* Widget embed (admin only) */}
-          {mode === 'edit' && selectedClient && (
+          {/* Widget embed (contractor clients only) */}
+          {mode === 'edit' && selectedClient && !isPlatform && (
             <section className="border rounded-lg p-4" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold" style={{ color: 'var(--ink)' }}>Widget Embed Code</h3>
@@ -574,6 +605,18 @@ export default function ClientsPanel() {
             </section>
           )}
 
+          {mode === 'edit' && selectedClient && isPlatform && (
+            <section className="border rounded-lg p-4" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+              <h3 className="font-semibold mb-2" style={{ color: 'var(--ink)' }}>Site Widget Key</h3>
+              <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
+                Used automatically by webchatsales.com. Managed in code — not rotated from here.
+              </p>
+              <code className="text-xs break-all block p-2 rounded" style={{ background: 'var(--bg)', color: 'var(--ink)' }}>
+                {selectedClient.widgetKey}
+              </code>
+            </section>
+          )}
+
           <div className="flex gap-3">
             <button
               type="submit"
@@ -597,28 +640,38 @@ export default function ClientsPanel() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center gap-3 flex-wrap">
+    <div className="space-y-4 min-w-0">
+      <div className="dashboard-section-header">
         <div>
-          <h2 className="text-2xl font-bold" style={{ color: 'var(--ink)' }}>Client Management</h2>
+          <h2 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--ink)' }}>Client Management</h2>
           <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
             Add, edit, and control client accounts — no coding required.
           </p>
         </div>
-        <button
-          onClick={openCreate}
-          className="px-4 py-2 text-sm font-medium text-black rounded bg-gradient-emerald"
-        >
-          + Add New Client
-        </button>
+        <div className="dashboard-toolbar">
+          <button
+            onClick={() => fetchClients()}
+            disabled={isLoading}
+            className="px-4 py-2 text-sm rounded border"
+            style={{ borderColor: 'var(--line)', color: 'var(--muted)' }}
+          >
+            {isLoading ? 'Refreshing...' : 'Refresh'}
+          </button>
+          <button
+            onClick={openCreate}
+            className="px-4 py-2 text-sm font-medium text-black rounded bg-gradient-emerald"
+          >
+            + Add New Client
+          </button>
+        </div>
       </div>
 
-      <div className="flex gap-3 flex-wrap">
+      <div className="dashboard-toolbar w-full">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name or email..."
-          className="px-3 py-2 text-sm border rounded flex-1 min-w-[200px]"
+          className="px-3 py-2 text-sm border rounded flex-1 min-w-0"
           style={{ borderColor: 'var(--line)', background: 'var(--bg)', color: 'var(--ink)' }}
         />
         <select
@@ -646,8 +699,9 @@ export default function ClientsPanel() {
           No clients found. Click &quot;Add New Client&quot; to get started.
         </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
-          <table className="w-full">
+        <div className="dashboard-table-shell" style={{ maxHeight: '70vh' }}>
+        <div className="dashboard-table-scroll" style={{ maxHeight: '70vh' }}>
+          <table className="dashboard-table" style={{ minWidth: '720px' }}>
             <thead style={{ background: 'var(--bg)' }}>
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: 'var(--muted)' }}>Business</th>
@@ -661,10 +715,18 @@ export default function ClientsPanel() {
             <tbody>
               {filteredClients.map((client) => {
                 const status = (client.status || 'draft') as ClientStatus;
+                const isPlatform = client.isPlatformTenant === true;
                 return (
                   <tr key={client._id} className="border-t" style={{ borderColor: 'var(--line)' }}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-sm" style={{ color: 'var(--ink)' }}>{client.name}</div>
+                      <div className="font-medium text-sm flex items-center gap-2 flex-wrap" style={{ color: 'var(--ink)' }}>
+                        {client.name}
+                        {isPlatform && (
+                          <span className="px-2 py-0.5 text-xs rounded bg-blue-500/20 text-blue-400">
+                            Platform
+                          </span>
+                        )}
+                      </div>
                       {client.companyWebsite && (
                         <div className="text-xs" style={{ color: 'var(--muted)' }}>{client.companyWebsite}</div>
                       )}
@@ -674,9 +736,15 @@ export default function ClientsPanel() {
                       <div className="text-xs" style={{ color: 'var(--muted)' }}>{client.ownerEmail}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-1 text-xs rounded capitalize ${statusColors[status]}`}>
-                        {status}
-                      </span>
+                      {isPlatform ? (
+                        <span className="px-2 py-1 text-xs rounded bg-emerald-500/20 text-emerald-500">
+                          always live
+                        </span>
+                      ) : (
+                        <span className={`px-2 py-1 text-xs rounded capitalize ${statusColors[status]}`}>
+                          {status}
+                        </span>
+                      )}
                       {client.isActive === false && (
                         <span className="ml-1 px-2 py-1 text-xs rounded bg-red-500/20 text-red-400">inactive</span>
                       )}
@@ -701,6 +769,7 @@ export default function ClientsPanel() {
               })}
             </tbody>
           </table>
+        </div>
         </div>
       )}
     </div>

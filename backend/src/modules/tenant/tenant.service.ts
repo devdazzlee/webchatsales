@@ -2,11 +2,13 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import * as crypto from "crypto";
 import { Client, ClientDocument } from "../../schemas/client.schema";
+import { config } from "../../config/config";
 
 /**
  * TenantService — Core multi-tenant operations
@@ -52,22 +54,13 @@ export class TenantService {
       data.allowedDomains,
     );
 
-    // Check for duplicate name or email
+    // Check for duplicate name or email (exclude platform tenant — it uses owner email too)
     const existingByName = await this.clientModel
-      .findOne({ name: data.name })
+      .findOne({ name: data.name, isPlatformTenant: { $ne: true } })
       .exec();
     if (existingByName) {
       throw new ConflictException(
         `Client with name "${data.name}" already exists`,
-      );
-    }
-
-    const existingByEmail = await this.clientModel
-      .findOne({ ownerEmail: data.ownerEmail })
-      .exec();
-    if (existingByEmail) {
-      throw new ConflictException(
-        `Client with email "${data.ownerEmail}" already exists`,
       );
     }
 
@@ -111,6 +104,74 @@ export class TenantService {
     return this.clientModel.findById(clientId).exec();
   }
 
+  /** The webchatsales.com marketing site tenant */
+  async findPlatformTenant(): Promise<ClientDocument | null> {
+    return this.clientModel
+      .findOne({ isPlatformTenant: true, isActive: true })
+      .exec();
+  }
+
+  /** Create or update the protected platform tenant (seed script) */
+  async ensurePlatformTenant(data: {
+    name: string;
+    ownerEmail: string;
+    notificationEmail?: string;
+    allowedDomains: string[];
+  }): Promise<ClientDocument> {
+    const slug = config.site.platformSlug;
+    let client =
+      (await this.findPlatformTenant()) ||
+      (await this.clientModel.findOne({ slug }).exec());
+
+    const mergedDomains = this.normalizeAllowedDomains(data.allowedDomains);
+
+    if (!client) {
+      client = new this.clientModel({
+        name: data.name,
+        slug,
+        ownerEmail: data.ownerEmail,
+        notificationEmail: data.notificationEmail || data.ownerEmail,
+        allowedDomains: mergedDomains,
+        widgetKey: config.site.defaultWidgetKey,
+        secretKey: this.generateSecretKey(),
+        status: 'live',
+        isPlatformTenant: true,
+        isActive: true,
+        plan: 'trial',
+      });
+      await client.save();
+      console.log(`[TenantService] ✅ Platform tenant created: ${client._id}`);
+      return client;
+    }
+
+    const updated = await this.clientModel
+      .findByIdAndUpdate(
+        client._id,
+        {
+          $set: {
+            name: data.name,
+            slug,
+            ownerEmail: data.ownerEmail,
+            notificationEmail: data.notificationEmail || data.ownerEmail,
+            allowedDomains: mergedDomains,
+            widgetKey: config.site.defaultWidgetKey,
+            status: 'live',
+            isPlatformTenant: true,
+            isActive: true,
+          },
+        },
+        { new: true },
+      )
+      .exec();
+
+    if (!updated) {
+      throw new NotFoundException('Failed to ensure platform tenant');
+    }
+
+    console.log(`[TenantService] ✅ Platform tenant ensured: ${updated.name} (${updated._id})`);
+    return updated;
+  }
+
   /**
    * Find a client by widget key (used by public widget endpoints)
    */
@@ -118,7 +179,10 @@ export class TenantService {
     const client = await this.clientModel
       .findOne({ widgetKey, isActive: true })
       .exec();
-    if (!client || this.isDraftStatus(client.status)) {
+    if (!client) {
+      return null;
+    }
+    if (!client.isPlatformTenant && this.isDraftStatus(client.status)) {
       return null;
     }
     return client;
@@ -147,17 +211,22 @@ export class TenantService {
       return null;
     }
 
-    const clients = await this.clientModel.find({ isActive: true }).exec();
+    // Marketing site domains always resolve to the platform tenant first
+    const platform = await this.findPlatformTenant();
+    if (platform && this.domainMatchesClient(normalized, platform)) {
+      return platform;
+    }
+
+    const clients = await this.clientModel
+      .find({ isActive: true, isPlatformTenant: { $ne: true } })
+      .exec();
+
     for (const client of clients) {
       if (this.isDraftStatus(client.status)) {
         continue;
       }
 
-      const allowed = (client.allowedDomains || [])
-        .map((d) => this.normalizeDomain(d))
-        .filter((d): d is string => !!d);
-
-      if (allowed.includes(normalized)) {
+      if (this.domainMatchesClient(normalized, client)) {
         return client;
       }
     }
@@ -186,7 +255,7 @@ export class TenantService {
       this.clientModel
         .find(query)
         .select("-secretKey -openaiApiKey -smtpPassword -squareAccessToken") // Never expose secrets in list
-        .sort({ createdAt: -1 })
+        .sort({ updatedAt: -1, createdAt: -1 })
         .limit(options?.limit || 50)
         .skip(options?.skip || 0)
         .exec(),
@@ -203,11 +272,24 @@ export class TenantService {
     clientId: string | Types.ObjectId,
     updateData: Partial<Client>,
   ): Promise<ClientDocument> {
+    const existing = await this.findById(clientId);
+    if (!existing) {
+      throw new NotFoundException(`Client ${clientId} not found`);
+    }
+
     // Prevent updating immutable fields
     delete (updateData as any)._id;
     delete (updateData as any).widgetKey;
     delete (updateData as any).secretKey;
     delete (updateData as any).slug;
+    delete (updateData as any).isPlatformTenant;
+
+    if (existing.isPlatformTenant) {
+      if (updateData.isActive === false) {
+        throw new BadRequestException('Cannot deactivate the platform tenant');
+      }
+      updateData.status = 'live';
+    }
 
     if (updateData.allowedDomains) {
       updateData.allowedDomains = this.normalizeAllowedDomains(
@@ -235,6 +317,11 @@ export class TenantService {
   async deactivateClient(
     clientId: string | Types.ObjectId,
   ): Promise<ClientDocument> {
+    const existing = await this.findById(clientId);
+    if (existing?.isPlatformTenant) {
+      throw new BadRequestException('Cannot deactivate the platform tenant');
+    }
+
     const client = await this.clientModel
       .findByIdAndUpdate(clientId, { isActive: false }, { new: true })
       .exec();
@@ -275,6 +362,13 @@ export class TenantService {
   async rotateWidgetKey(
     clientId: string | Types.ObjectId,
   ): Promise<{ widgetKey: string }> {
+    const existing = await this.findById(clientId);
+    if (existing?.isPlatformTenant) {
+      throw new BadRequestException(
+        'Cannot rotate the platform widget key — it is tied to webchatsales.com',
+      );
+    }
+
     const newKey = this.generateWidgetKey();
     const client = await this.clientModel
       .findByIdAndUpdate(clientId, { widgetKey: newKey }, { new: true })
@@ -335,6 +429,24 @@ export class TenantService {
 
   private isDraftStatus(status?: string): boolean {
     return status === "draft";
+  }
+
+  private domainMatchesClient(normalized: string, client: ClientDocument): boolean {
+    const allowed = (client.allowedDomains || [])
+      .map((d) => this.normalizeDomain(d))
+      .filter((d): d is string => !!d);
+
+    if (allowed.includes(normalized)) {
+      return true;
+    }
+
+    if (client.isPlatformTenant) {
+      return config.site.marketingDomains.some(
+        (d) => this.normalizeDomain(d) === normalized,
+      );
+    }
+
+    return false;
   }
 
   private generateWidgetKey(): string {

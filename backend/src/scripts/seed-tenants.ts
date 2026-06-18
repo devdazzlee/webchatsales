@@ -20,52 +20,21 @@ async function bootstrap() {
       'https://www.webchatsales.com/',
     ];
 
-    const slug = name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
-
-    const existing = await tenantService.findBySlug(slug);
-
-    if (!existing) {
-      const created = await tenantService.createClient({
-        name,
-        ownerEmail,
-        notificationEmail,
-        allowedDomains: requiredDomains,
-        plan: 'trial',
-        status: 'live',
-      });
-
-      console.log('[seed:tenants] Created tenant:', {
-        id: created._id?.toString(),
-        name: created.name,
-        slug: created.slug,
-        widgetKey: created.widgetKey,
-        allowedDomains: created.allowedDomains,
-      });
-      return;
-    }
-
-    const mergedDomains = Array.from(
-      new Set([...(existing.allowedDomains || []), ...requiredDomains]),
-    );
-
-    const updated = await tenantService.updateClient(existing._id, {
+    const platform = await tenantService.ensurePlatformTenant({
       name,
       ownerEmail,
-      allowedDomains: mergedDomains,
       notificationEmail,
-      isActive: true,
-      status: 'live',
+      allowedDomains: requiredDomains,
     });
 
-    console.log('[seed:tenants] Updated existing tenant:', {
-      id: updated._id?.toString(),
-      name: updated.name,
-      slug: updated.slug,
-      widgetKey: updated.widgetKey,
-      allowedDomains: updated.allowedDomains,
+    console.log('[seed:tenants] Platform tenant ready:', {
+      id: platform._id?.toString(),
+      name: platform.name,
+      slug: platform.slug,
+      widgetKey: platform.widgetKey,
+      isPlatformTenant: platform.isPlatformTenant,
+      status: platform.status,
+      allowedDomains: platform.allowedDomains,
     });
   } finally {
     await app.close();

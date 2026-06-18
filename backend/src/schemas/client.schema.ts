@@ -99,6 +99,10 @@ export class Client {
   @Prop({ default: "draft", enum: ["draft", "test", "live"] })
   status: string;
 
+  // Platform marketing site (webchatsales.com) — exempt from draft/test/live gating
+  @Prop({ default: false, index: true })
+  isPlatformTenant: boolean;
+
   @Prop({ default: "trial" })
   plan: string; // trial, starter, pro, enterprise
 
