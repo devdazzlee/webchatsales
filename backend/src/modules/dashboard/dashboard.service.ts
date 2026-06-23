@@ -311,7 +311,7 @@ export class DashboardService {
         .sort({ createdAt: -1 })
         .limit(limit)
         .skip(skip)
-        .populate('clientId', 'name slug ownerEmail widgetKey')
+        .populate('clientId', 'name slug ownerEmail widgetKey status installVerified lastWidgetPingAt')
         .exec(),
       this.intakeSubmissionModel.countDocuments(query),
     ]);

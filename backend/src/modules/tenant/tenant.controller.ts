@@ -31,6 +31,8 @@ export class TenantController {
       ownerPhone?: string;
       companyWebsite?: string;
       industry?: string;
+      jobDescription?: string;
+      servicesOffered?: string[];
       allowedDomains?: string[];
       plan?: string;
       notificationEmail?: string;
@@ -164,6 +166,70 @@ export class TenantController {
       success: true,
       ...key,
     };
+  }
+
+  @Get(':tenantId/deployment-status')
+  async getDeploymentStatus(@Req() req: Request, @Param('tenantId') tenantId: string) {
+    this.assertSuperAdmin(req);
+    this.assertObjectId(tenantId);
+
+    const status = await this.tenantService.getDeploymentStatus(tenantId);
+    return { success: true, ...status };
+  }
+
+  @Get(':tenantId/activation-logs')
+  async getActivationLogs(@Req() req: Request, @Param('tenantId') tenantId: string) {
+    this.assertSuperAdmin(req);
+    this.assertObjectId(tenantId);
+
+    const logs = await this.tenantService.getActivationLogs(tenantId);
+    return { success: true, logs };
+  }
+
+  @Post(':tenantId/activate-test')
+  async activateTest(@Req() req: Request, @Param('tenantId') tenantId: string) {
+    this.assertSuperAdmin(req);
+    this.assertObjectId(tenantId);
+
+    const user = (req as any).user;
+    const client = await this.tenantService.activateTest(tenantId, user?.email);
+    return {
+      success: true,
+      client,
+      widgetLink: this.tenantService.buildWidgetLink(client.widgetKey),
+      widgetEmbedScript: this.tenantService.buildWidgetEmbedScript(client.widgetKey),
+    };
+  }
+
+  @Post(':tenantId/activate-live')
+  async activateLive(
+    @Req() req: Request,
+    @Param('tenantId') tenantId: string,
+    @Body() body: { force?: boolean },
+  ) {
+    this.assertSuperAdmin(req);
+    this.assertObjectId(tenantId);
+
+    const user = (req as any).user;
+    const client = await this.tenantService.activateLive(tenantId, user?.email, {
+      force: body?.force === true,
+    });
+    return {
+      success: true,
+      client,
+      widgetLink: this.tenantService.buildWidgetLink(client.widgetKey),
+      widgetEmbedScript: this.tenantService.buildWidgetEmbedScript(client.widgetKey),
+    };
+  }
+
+  @Post(':tenantId/deactivate-deployment')
+  async deactivateDeployment(@Req() req: Request, @Param('tenantId') tenantId: string) {
+    this.assertSuperAdmin(req);
+    this.assertObjectId(tenantId);
+
+    const user = (req as any).user;
+    const client = await this.tenantService.deactivateDeployment(tenantId, user?.email);
+    return { success: true, client };
   }
 
   private assertSuperAdmin(req: Request): void {

@@ -44,6 +44,10 @@ export class IntakeService {
       let isNewClient = false;
 
       if (!client) {
+        const jobDescription =
+          normalized.jobDescription ||
+          `Help with: ${serviceSummary}. ${normalized.notes || ''}`.trim();
+
         const createdClient = await this.tenantService.createClient({
           name: normalized.businessName,
           ownerEmail: normalized.ownerEmail,
@@ -51,8 +55,13 @@ export class IntakeService {
           ownerPhone: normalized.ownerPhone,
           companyWebsite: normalized.companyWebsite,
           industry: normalized.industry,
+          jobDescription,
+          servicesOffered: normalized.servicesOffered,
           allowedDomains,
           schedulingLink: normalized.bookingLink,
+          businessConfig: {
+            qualificationGoal: `Qualify inbound leads for ${serviceSummary}.`,
+          },
         });
         client = await this.clientModel.findById(createdClient._id).exec();
         if (!client) {
@@ -60,12 +69,19 @@ export class IntakeService {
         }
         isNewClient = true;
       } else {
+        const jobDescription =
+          normalized.jobDescription ||
+          client.jobDescription ||
+          `Help with: ${serviceSummary}.`;
+
         await this.tenantService.updateClient(client._id, {
           name: normalized.businessName,
           ownerName: normalized.ownerName,
           ownerPhone: normalized.ownerPhone,
           companyWebsite: normalized.companyWebsite,
           industry: normalized.industry,
+          jobDescription,
+          servicesOffered: normalized.servicesOffered,
           allowedDomains: allowedDomains.length ? allowedDomains : client.allowedDomains,
           schedulingLink: normalized.bookingLink || client.schedulingLink,
           businessHours: normalized.businessHours,
@@ -153,6 +169,7 @@ export class IntakeService {
       timezone: payload.timezone.trim(),
       bookingLink: payload.bookingLink?.trim(),
       notes: payload.notes?.trim(),
+      jobDescription: payload.jobDescription?.trim(),
     };
   }
 
@@ -173,15 +190,11 @@ export class IntakeService {
   }
 
   private buildWidgetLink(widgetKey: string): string {
-    const frontendBase =
-      process.env.FRONTEND_URL?.replace(/\/$/, '') || 'http://localhost:3000';
-    return `${frontendBase}/widget?widgetKey=${encodeURIComponent(widgetKey)}`;
+    return this.tenantService.buildWidgetLink(widgetKey);
   }
 
   private buildWidgetEmbedScript(widgetKey: string): string {
-    const frontendBase =
-      process.env.FRONTEND_URL?.replace(/\/$/, '') || 'http://localhost:3000';
-    return `<script src="${frontendBase}/abby-widget.js" data-widget-key="${widgetKey}"><\/script>`;
+    return this.tenantService.buildWidgetEmbedScript(widgetKey);
   }
 
   private async sendIntakeEmails(payload: CreateIntakeDto, isNewClient: boolean): Promise<boolean> {

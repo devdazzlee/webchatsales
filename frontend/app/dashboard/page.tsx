@@ -25,6 +25,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [clientsEditId, setClientsEditId] = useState<string | null>(null);
 
   useEffect(() => {
     // Check authentication
@@ -194,8 +195,17 @@ export default function DashboardPage() {
         {activeTab === 'tickets' && <TicketsList />}
         {activeTab === 'payments' && <PaymentsList />}
         {activeTab === 'bookings' && <BookingsList />}
-        {activeTab === 'intake' && <IntakeSubmissionsList />}
-        {activeTab === 'clients' && userRole === 'super_admin' && <ClientsPanel />}
+        {activeTab === 'intake' && (
+          <IntakeSubmissionsList
+            onEditClient={(clientId) => {
+              setClientsEditId(clientId);
+              setActiveTab('clients');
+            }}
+          />
+        )}
+        {activeTab === 'clients' && userRole === 'super_admin' && (
+          <ClientsPanel initialEditClientId={clientsEditId} onClearInitialEdit={() => setClientsEditId(null)} />
+        )}
       </main>
     </div>
   );

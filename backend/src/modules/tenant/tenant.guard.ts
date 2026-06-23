@@ -6,24 +6,27 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { TENANT_KEY, SKIP_TENANT_KEY } from './tenant.decorator';
+import { TenantService } from './tenant.service';
 
 /**
  * TenantGuard — Ensures a valid tenant context exists on the request
- * 
+ *
  * Applied to controllers/routes that REQUIRE tenant isolation.
  * Routes decorated with @SkipTenant() bypass this guard.
- * 
- * Usage:
- *   @UseGuards(TenantGuard)
- *   @Controller('api/chat')
- *   export class ChatController { ... }
+ *
+ * Status semantics:
+ * - draft: blocked
+ * - test: allowed (domain check warn-only via ping)
+ * - live: allowed with strict domain validation
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(
+    private reflector: Reflector,
+    private tenantService: TenantService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
-    // Check if route explicitly skips tenant requirement
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const skipTenant = this.reflector.getAllAndOverride<boolean>(SKIP_TENANT_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -48,7 +51,6 @@ export class TenantGuard implements CanActivate {
       );
     }
 
-    // Platform tenant (webchatsales.com) is always allowed — client draft rules don't apply
     if (tenant.isPlatformTenant) {
       return true;
     }
@@ -57,6 +59,22 @@ export class TenantGuard implements CanActivate {
       throw new ForbiddenException(
         'This chat widget is not active yet. The account is still being configured.',
       );
+    }
+
+    // Live clients: enforce domain whitelist when Origin/Referer is present
+    if (tenant.status === 'live') {
+      const origin = request.headers.origin || request.headers.referer;
+      if (origin) {
+        const domainValid = await this.tenantService.validateLiveTenantDomain(
+          tenant.clientId,
+          origin as string,
+        );
+        if (!domainValid) {
+          throw new ForbiddenException(
+            'This widget is not authorized for this domain. Contact support to update allowed domains.',
+          );
+        }
+      }
     }
 
     return true;

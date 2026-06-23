@@ -38,6 +38,8 @@ type Client = {
   ownerPhone?: string;
   companyWebsite?: string;
   industry?: string;
+  jobDescription?: string;
+  servicesOffered?: string[];
   notificationEmail?: string;
   emailNotificationsEnabled?: boolean;
   schedulingLink?: string;
@@ -45,6 +47,11 @@ type Client = {
   timezone?: string;
   allowedDomains?: string[];
   status?: ClientStatus;
+  installVerified?: boolean;
+  lastWidgetPingAt?: string;
+  lastWidgetPingDomain?: string;
+  testActivatedAt?: string;
+  activatedAt?: string;
   isPlatformTenant?: boolean;
   isActive?: boolean;
   plan?: string;
@@ -54,6 +61,25 @@ type Client = {
   updatedAt?: string;
 };
 
+type DeploymentStatus = {
+  installVerified: boolean;
+  lastWidgetPingAt?: string;
+  lastWidgetPingDomain?: string;
+  canGoLive: boolean;
+  widgetLink: string;
+  widgetEmbedScript: string;
+  recentLogs: Array<{
+    action: string;
+    fromStatus?: string;
+    toStatus?: string;
+    performedBy?: string;
+    details?: string;
+    timestamp?: string;
+  }>;
+};
+
+type ActivationLog = DeploymentStatus['recentLogs'][number];
+
 const emptyForm = {
   name: '',
   ownerEmail: '',
@@ -61,6 +87,8 @@ const emptyForm = {
   ownerPhone: '',
   companyWebsite: '',
   industry: '',
+  jobDescription: '',
+  servicesOffered: '',
   notificationEmail: '',
   emailNotificationsEnabled: true,
   schedulingLink: '',
@@ -101,6 +129,8 @@ function clientToForm(client: Client) {
     ownerPhone: client.ownerPhone || '',
     companyWebsite: client.companyWebsite || '',
     industry: client.industry || '',
+    jobDescription: client.jobDescription || '',
+    servicesOffered: (client.servicesOffered || []).join(', '),
     notificationEmail: client.notificationEmail || client.ownerEmail || '',
     emailNotificationsEnabled: client.emailNotificationsEnabled !== false,
     schedulingLink: client.schedulingLink || '',
@@ -133,6 +163,11 @@ function formToPayload(form: typeof emptyForm) {
     .map((r) => r.trim())
     .filter(Boolean);
 
+  const servicesOffered = form.servicesOffered
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   return {
     name: form.name.trim(),
     ownerEmail: form.ownerEmail.trim(),
@@ -140,6 +175,8 @@ function formToPayload(form: typeof emptyForm) {
     ownerPhone: form.ownerPhone.trim() || undefined,
     companyWebsite: form.companyWebsite.trim() || undefined,
     industry: form.industry.trim() || undefined,
+    jobDescription: form.jobDescription.trim() || undefined,
+    servicesOffered,
     notificationEmail: form.notificationEmail.trim() || form.ownerEmail.trim(),
     emailNotificationsEnabled: form.emailNotificationsEnabled,
     schedulingLink: form.schedulingLink.trim() || undefined,
@@ -165,7 +202,13 @@ function formToPayload(form: typeof emptyForm) {
   };
 }
 
-export default function ClientsPanel() {
+export default function ClientsPanel({
+  initialEditClientId,
+  onClearInitialEdit,
+}: {
+  initialEditClientId?: string | null;
+  onClearInitialEdit?: () => void;
+} = {}) {
   const [clients, setClients] = useState<Client[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -177,10 +220,22 @@ export default function ClientsPanel() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [deployment, setDeployment] = useState<DeploymentStatus | null>(null);
+  const [activationLogs, setActivationLogs] = useState<ActivationLog[]>([]);
+  const [isDeployAction, setIsDeployAction] = useState(false);
 
   useEffect(() => {
     fetchClients();
   }, [statusFilter]);
+
+  useEffect(() => {
+    if (!initialEditClientId || clients.length === 0) return;
+    const client = clients.find((c) => c._id === initialEditClientId);
+    if (client) {
+      openEdit(client);
+      onClearInitialEdit?.();
+    }
+  }, [initialEditClientId, clients]);
 
   const fetchClients = async () => {
     setIsLoading(true);
@@ -219,12 +274,91 @@ export default function ClientsPanel() {
     setMode('edit');
     setError('');
     setSuccess('');
+    fetchDeploymentStatus(client._id);
+  };
+
+  const fetchDeploymentStatus = async (clientId: string) => {
+    try {
+      const [statusRes, logsRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/tenants/${clientId}/deployment-status`, {
+          headers: getAuthHeaders(),
+        }),
+        fetch(`${API_BASE_URL}/api/tenants/${clientId}/activation-logs`, {
+          headers: getAuthHeaders(),
+        }),
+      ]);
+      if (handleAuthError(statusRes)) return;
+
+      const statusData = await statusRes.json();
+      const logsData = logsRes.ok ? await logsRes.json() : { logs: [] };
+
+      if (statusData.success) {
+        setDeployment({
+          installVerified: statusData.installVerified,
+          lastWidgetPingAt: statusData.lastWidgetPingAt,
+          lastWidgetPingDomain: statusData.lastWidgetPingDomain,
+          canGoLive: statusData.canGoLive,
+          widgetLink: statusData.widgetLink,
+          widgetEmbedScript: statusData.widgetEmbedScript,
+          recentLogs: statusData.recentLogs || [],
+        });
+      }
+      if (logsData.success) {
+        setActivationLogs(logsData.logs || []);
+      }
+    } catch (err) {
+      console.error('Failed to load deployment status', err);
+    }
+  };
+
+  const runDeploymentAction = async (
+    action: 'activate-test' | 'activate-live' | 'deactivate-deployment',
+    options?: { force?: boolean },
+  ) => {
+    if (!selectedClient) return;
+    setIsDeployAction(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/tenants/${selectedClient._id}/${action}`,
+        {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: action === 'activate-live' ? JSON.stringify({ force: options?.force }) : undefined,
+        },
+      );
+      if (handleAuthError(response)) return;
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || data.error || 'Deployment action failed');
+      }
+
+      const labels = {
+        'activate-test': 'Client activated for testing.',
+        'activate-live': 'Client is now live!',
+        'deactivate-deployment': 'Widget deactivated — client returned to draft.',
+      };
+      setSuccess(labels[action]);
+      setSelectedClient(data.client);
+      setForm(clientToForm(data.client));
+      await fetchClients();
+      await fetchDeploymentStatus(selectedClient._id);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Deployment action failed');
+    } finally {
+      setIsDeployAction(false);
+    }
   };
 
   const closeForm = () => {
     setMode('list');
     setSelectedClient(null);
     setForm(emptyForm);
+    setDeployment(null);
+    setActivationLogs([]);
     setError('');
   };
 
@@ -445,6 +579,106 @@ export default function ClientsPanel() {
           </section>
           )}
 
+          {/* Deployment workflow — contractor clients only */}
+          {mode === 'edit' && selectedClient && !isPlatform && (
+            <section className="border rounded-lg p-4" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
+              <h3 className="font-semibold mb-3" style={{ color: 'var(--ink)' }}>Deployment & Activation</h3>
+              <div className="grid sm:grid-cols-3 gap-3 mb-4 text-sm">
+                <div className="p-3 rounded border" style={{ borderColor: 'var(--line)' }}>
+                  <p className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Install verified</p>
+                  <p className="font-medium" style={{ color: deployment?.installVerified ? 'var(--emerald)' : '#f59e0b' }}>
+                    {deployment?.installVerified ? 'Yes — widget detected' : 'Not yet — add embed code to client site'}
+                  </p>
+                </div>
+                <div className="p-3 rounded border" style={{ borderColor: 'var(--line)' }}>
+                  <p className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Last ping</p>
+                  <p className="font-medium" style={{ color: 'var(--ink)' }}>
+                    {deployment?.lastWidgetPingAt
+                      ? `${format(new Date(deployment.lastWidgetPingAt), 'MMM d, HH:mm')}${deployment.lastWidgetPingDomain ? ` from ${deployment.lastWidgetPingDomain}` : ''}`
+                      : 'No ping received'}
+                  </p>
+                </div>
+                <div className="p-3 rounded border" style={{ borderColor: 'var(--line)' }}>
+                  <p className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Go-live ready</p>
+                  <p className="font-medium" style={{ color: deployment?.canGoLive ? 'var(--emerald)' : 'var(--muted)' }}>
+                    {deployment?.canGoLive ? 'Ready for live' : 'Complete testing first'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mb-4">
+                <button
+                  type="button"
+                  disabled={isDeployAction || form.status === 'test' || form.status === 'live'}
+                  onClick={() => runDeploymentAction('activate-test')}
+                  className="px-4 py-2 text-sm font-medium text-black rounded bg-gradient-emerald disabled:opacity-50"
+                >
+                  Activate for Test
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeployAction || form.status === 'live' || !deployment?.installVerified}
+                  onClick={() => runDeploymentAction('activate-live')}
+                  className="px-4 py-2 text-sm rounded border disabled:opacity-50"
+                  style={{ borderColor: 'var(--emerald)', color: 'var(--emerald)' }}
+                >
+                  Go Live
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeployAction || !deployment?.installVerified}
+                  onClick={() => {
+                    if (confirm('Go live without install verification? Only use if ping failed incorrectly.')) {
+                      runDeploymentAction('activate-live', { force: true });
+                    }
+                  }}
+                  className="px-4 py-2 text-sm rounded border disabled:opacity-50"
+                  style={{ borderColor: 'var(--line)', color: 'var(--muted)' }}
+                >
+                  Force Go Live
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeployAction || form.status === 'draft'}
+                  onClick={() => {
+                    if (confirm('Deactivate widget? Client will return to draft and Abby will stop loading on their site.')) {
+                      runDeploymentAction('deactivate-deployment');
+                    }
+                  }}
+                  className="px-4 py-2 text-sm rounded border disabled:opacity-50"
+                  style={{ borderColor: '#ef4444', color: '#ef4444' }}
+                >
+                  Deactivate Widget
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeployAction}
+                  onClick={() => selectedClient && fetchDeploymentStatus(selectedClient._id)}
+                  className="px-4 py-2 text-sm rounded border"
+                  style={{ borderColor: 'var(--line)', color: 'var(--muted)' }}
+                >
+                  Refresh status
+                </button>
+              </div>
+
+              {activationLogs.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium mb-2" style={{ color: 'var(--ink)' }}>Activation log</h4>
+                  <div className="max-h-48 overflow-y-auto space-y-2">
+                    {activationLogs.slice(0, 15).map((log, idx) => (
+                      <div key={idx} className="text-xs p-2 rounded" style={{ background: 'var(--bg)', color: 'var(--muted)' }}>
+                        <span style={{ color: 'var(--ink)' }}>{log.action}</span>
+                        {log.fromStatus && log.toStatus ? ` (${log.fromStatus} → ${log.toStatus})` : ''}
+                        {log.details ? ` — ${log.details}` : ''}
+                        {log.timestamp ? ` · ${format(new Date(log.timestamp), 'MMM d, HH:mm')}` : ''}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
           {/* Business Info */}
           <section className="border rounded-lg p-4" style={{ borderColor: 'var(--line)', background: 'var(--panel)' }}>
             <h3 className="font-semibold mb-3" style={{ color: 'var(--ink)' }}>Business Information</h3>
@@ -488,6 +722,14 @@ export default function ClientsPanel() {
               <div>
                 <label className={labelClass} style={labelStyle}>Allowed domains (comma-separated)</label>
                 <input name="allowedDomains" value={form.allowedDomains} onChange={onFieldChange} placeholder="example.com, www.example.com" className={inputClass} style={inputStyle} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className={labelClass} style={labelStyle}>Job description (what Abby should help with)</label>
+                <textarea name="jobDescription" value={form.jobDescription} onChange={onFieldChange} rows={3} className={`${inputClass} resize-none`} style={inputStyle} placeholder="Qualify roofing leads, book estimates, answer pricing questions..." />
+              </div>
+              <div className="sm:col-span-2">
+                <label className={labelClass} style={labelStyle}>Services offered (comma-separated)</label>
+                <input name="servicesOffered" value={form.servicesOffered} onChange={onFieldChange} placeholder="Lead Qualification, Appointment Booking" className={inputClass} style={inputStyle} />
               </div>
             </div>
           </section>
@@ -707,6 +949,7 @@ export default function ClientsPanel() {
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: 'var(--muted)' }}>Business</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: 'var(--muted)' }}>Owner</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: 'var(--muted)' }}>Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: 'var(--muted)' }}>Install</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: 'var(--muted)' }}>Notifications</th>
                 <th className="px-4 py-3 text-left text-xs font-medium uppercase" style={{ color: 'var(--muted)' }}>Created</th>
                 <th className="px-4 py-3 text-right text-xs font-medium uppercase" style={{ color: 'var(--muted)' }}>Actions</th>
@@ -747,6 +990,17 @@ export default function ClientsPanel() {
                       )}
                       {client.isActive === false && (
                         <span className="ml-1 px-2 py-1 text-xs rounded bg-red-500/20 text-red-400">inactive</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {!isPlatform && client.status !== 'draft' ? (
+                        client.installVerified ? (
+                          <span style={{ color: 'var(--emerald)' }}>verified</span>
+                        ) : (
+                          <span style={{ color: '#f59e0b' }}>pending</span>
+                        )
+                      ) : (
+                        <span style={{ color: 'var(--muted)' }}>—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted)' }}>

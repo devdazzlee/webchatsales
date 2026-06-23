@@ -27,6 +27,7 @@ type IntakeFormState = {
   timezone: string;
   bookingLink: string;
   notes: string;
+  jobDescription: string;
 };
 
 const initialForm: IntakeFormState = {
@@ -41,6 +42,7 @@ const initialForm: IntakeFormState = {
   timezone: '',
   bookingLink: '',
   notes: '',
+  jobDescription: '',
 };
 
 const inputClass =
@@ -140,7 +142,7 @@ export default function IntakePage() {
 
     try {
       const payload: Record<string, unknown> = { ...form };
-      const optionalFields = ['ownerPhone', 'companyWebsite', 'industry', 'bookingLink', 'notes'];
+      const optionalFields = ['ownerPhone', 'companyWebsite', 'industry', 'bookingLink', 'notes', 'jobDescription'];
       for (const field of optionalFields) {
         if (!payload[field] || (typeof payload[field] === 'string' && (payload[field] as string).trim() === '')) {
           delete payload[field];
@@ -345,6 +347,17 @@ export default function IntakePage() {
                     );
                   })}
                 </div>
+                <Field label="Job description">
+                  <textarea
+                    name="jobDescription"
+                    value={form.jobDescription}
+                    onChange={onFieldChange}
+                    rows={3}
+                    placeholder="Describe what Abby should help with — e.g. qualify emergency roofing leads, book estimates, answer pricing questions..."
+                    className={`${inputClass} resize-none`}
+                    style={inputStyle}
+                  />
+                </Field>
               </SectionCard>
 
               <SectionCard title="Hours & scheduling">

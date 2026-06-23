@@ -4,6 +4,7 @@ import { Client, ClientSchema } from '../../schemas/client.schema';
 import { TenantService } from './tenant.service';
 import { TenantGuard } from './tenant.guard';
 import { TenantController } from './tenant.controller';
+import { WidgetController } from '../widget/widget.controller';
 import { AuthModule } from '../auth/auth.module';
 
 /**
@@ -21,7 +22,7 @@ import { AuthModule } from '../auth/auth.module';
       { name: Client.name, schema: ClientSchema },
     ]),
   ],
-  controllers: [TenantController],
+  controllers: [TenantController, WidgetController],
   providers: [TenantService, TenantGuard],
   exports: [TenantService, TenantGuard, MongooseModule],
 })

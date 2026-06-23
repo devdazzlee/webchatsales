@@ -11,8 +11,14 @@ interface ChatbotContextType {
 
 const ChatbotContext = createContext<ChatbotContextType | undefined>(undefined);
 
-export function ChatbotProvider({ children }: { children: ReactNode }) {
-  const [isOpen, setIsOpen] = useState(false);
+export function ChatbotProvider({
+  children,
+  initialOpen = false,
+}: {
+  children: ReactNode;
+  initialOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(initialOpen);
 
   const openChatbot = () => setIsOpen(true);
   const closeChatbot = () => setIsOpen(false);

@@ -17,6 +17,11 @@ interface Message {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000';
 
+const getEmbedMode = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('embed') === 'true';
+};
+
 const getTenantHeaders = (): Record<string, string> => {
   if (typeof window === 'undefined') {
     return {};
@@ -41,8 +46,16 @@ const getTenantHeaders = (): Record<string, string> => {
   return headers;
 };
 
-export default function Chatbot() {
+export default function Chatbot({ embedMode: embedModeProp }: { embedMode?: boolean } = {}) {
   const { isOpen, openChatbot, closeChatbot } = useChatbot();
+  const embedMode = embedModeProp ?? getEmbedMode();
+
+  const handleCloseChatbot = () => {
+    closeChatbot();
+    if (embedMode && typeof window !== 'undefined' && window.parent !== window) {
+      window.parent.postMessage({ type: 'abby-close' }, '*');
+    }
+  };
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -652,8 +665,8 @@ export default function Chatbot() {
 
   return (
     <>
-      {/* Floating Chat Button */}
-      {!isOpen && (
+      {/* Floating Chat Button — hidden in iframe embed mode (outer launcher handles open) */}
+      {!embedMode && !isOpen && (
         <button
           onClick={openChatbot}
           className="fixed bottom-6 right-6 flex items-center gap-3 px-5 py-3 rounded-lg transition-all z-50 hover:scale-105"
@@ -674,8 +687,15 @@ export default function Chatbot() {
       )}
 
       {/* Chat Window */}
-      {isOpen && (
-        <div className="fixed bottom-6 right-6 w-[calc(100%-3rem)] max-w-96 h-[600px] max-h-[calc(100vh-3rem)] border rounded-lg shadow-2xl flex flex-col z-50" style={{ background: 'var(--panel)', borderColor: 'var(--line)' }}>
+      {(embedMode || isOpen) && (
+        <div
+          className={
+            embedMode
+              ? 'w-full h-full border-0 rounded-none shadow-none flex flex-col'
+              : 'fixed bottom-6 right-6 w-[calc(100%-3rem)] max-w-96 h-[600px] max-h-[calc(100vh-3rem)] border rounded-lg shadow-2xl flex flex-col z-50'
+          }
+          style={{ background: 'var(--panel)', borderColor: embedMode ? 'transparent' : 'var(--line)' }}
+        >
           {/* Chat Header */}
           <div className="p-4 rounded-t-lg flex items-center justify-between bg-gradient-emerald">
             <div className="flex items-center gap-3">
@@ -696,7 +716,7 @@ export default function Chatbot() {
               </div>
             </div>
             <button
-              onClick={closeChatbot}
+              onClick={handleCloseChatbot}
               className="text-black hover:text-black/70 transition-colors"
               aria-label="Close chat"
             >

@@ -63,6 +63,29 @@ export const BusinessConfigSchema =
   SchemaFactory.createForClass(BusinessConfig);
 
 /**
+ * Activation log entry — audit trail for deployment status changes and install pings
+ */
+@Schema({ _id: true, timestamps: { createdAt: "timestamp", updatedAt: false } })
+export class ActivationLog {
+  @Prop({ required: true })
+  action: string;
+
+  @Prop()
+  fromStatus?: string;
+
+  @Prop()
+  toStatus?: string;
+
+  @Prop()
+  performedBy?: string;
+
+  @Prop()
+  details?: string;
+}
+
+export const ActivationLogSchema = SchemaFactory.createForClass(ActivationLog);
+
+/**
  * Client Schema — The tenant model
  *
  * Each client represents one customer who has installed WebChatSales.
@@ -124,6 +147,32 @@ export class Client {
 
   @Prop()
   industry: string;
+
+  /** What Abby should help with — from intake or admin */
+  @Prop()
+  jobDescription: string;
+
+  @Prop({ type: [String], default: [] })
+  servicesOffered: string[];
+
+  // Deployment / install verification
+  @Prop({ default: false })
+  installVerified: boolean;
+
+  @Prop()
+  lastWidgetPingAt: Date;
+
+  @Prop()
+  lastWidgetPingDomain: string;
+
+  @Prop()
+  testActivatedAt: Date;
+
+  @Prop()
+  activatedAt: Date;
+
+  @Prop({ type: [ActivationLogSchema], default: [] })
+  activationLogs: ActivationLog[];
 
   // Notification settings — per-tenant
   @Prop()
